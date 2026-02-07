@@ -1,5 +1,6 @@
 {
     "hosting": {
+        "site": "project-health-de9dd",
         "public": "dist",
         "ignore": [
             "firebase.json",

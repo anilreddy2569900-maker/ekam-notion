@@ -4,9 +4,12 @@ import { getFirestore, collection, query, orderBy, onSnapshot, deleteDoc, doc, a
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 
+import { getAnalytics } from "firebase/analytics";
+
 const firebaseConfig = {
     apiKey: "AIzaSyDBRF5SCiUFHNxzimhfLdkxYCkgOzZTbIo",
     authDomain: "project-health-de9dd.firebaseapp.com",
+    databaseURL: "https://project-health-de9dd-default-rtdb.firebaseio.com",
     projectId: "project-health-de9dd",
     storageBucket: "project-health-de9dd.firebasestorage.app",
     messagingSenderId: "128197273200",
@@ -15,6 +18,7 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+export const analytics = getAnalytics(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);

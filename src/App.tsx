@@ -12,6 +12,7 @@ import { useAuth } from './contexts/AuthContext';
 import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, getDoc, getDocs, limit, updateDoc, ref, uploadBytes, getDownloadURL } from './lib/firebase';
 import { sendMessageToEkam, generateChatTitle } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
+import { Login } from './components/Login';
 
 
 const App: React.FC = () => {
@@ -361,33 +362,8 @@ const App: React.FC = () => {
     return <div className="h-screen w-screen bg-warm-charcoal flex items-center justify-center text-text-muted-zinc">Loading...</div>;
   }
 
-  // 2. Unauthenticated State (Login)
   if (!user) {
-    return (
-      <div className="flex flex-col h-[100dvh] bg-warm-charcoal items-center justify-center text-text-cream p-4">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9, filter: "blur(10px)" }}
-          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-          transition={{ duration: 1.2, ease: "easeOut" }}
-          className="text-center space-y-8"
-        >
-          <div className="relative">
-            <div className="absolute inset-0 bg-white/20 blur-[60px] rounded-full opacity-20 animate-pulse-glow"></div>
-            <h1 className="font-serif text-5xl md:text-6xl mb-2 relative z-10 tracking-tight">Ekam Health</h1>
-          </div>
-          <p className="text-text-muted-zinc/80 max-w-xs mx-auto text-lg font-light tracking-wide">Your Personal Health Assistant</p>
-          <motion.button
-            whileHover={{ scale: 1.05, boxShadow: "0 0 30px rgba(255,255,255,0.15)" }}
-            whileTap={{ scale: 0.95 }}
-            onClick={signInWithGoogle}
-            className="bg-text-cream text-warm-charcoal font-medium py-3.5 px-10 rounded-full shadow-2xl transition-all relative overflow-hidden group"
-          >
-            <span className="relative z-10">Enter System</span>
-            <div className="absolute inset-0 bg-white/50 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
-          </motion.button>
-        </motion.div>
-      </div>
-    );
+    return <Login onLogin={signInWithGoogle} />;
   }
 
   // 3. Authenticated but Checking Profile

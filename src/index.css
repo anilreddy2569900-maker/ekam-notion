@@ -1,0 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+  :root {
+    --color-warm-charcoal: #191919;
+    --color-surface-charcoal: #252525;
+    --color-text-cream: #F4F4F0;
+    --color-text-muted-zinc: #A1A1AA;
+    --color-accent-clay: #D97757;
+  }
+
+  .light {
+    /* Ayurvedic Light Theme - Warm Cream & Terracotta with Nature */
+    /* Background Colors - Warm Cream with subtle green undertones */
+    --color-warm-charcoal: #FAF7F2;
+    /* Main background - Warm off-white cream */
+    --color-surface-charcoal: #F0EBE3;
+    /* Surface cards - Soft warm gray-cream */
+
+    /* Text Colors - Deep earthy tones */
+    --color-text-cream: #2D2520;
+    /* Primary text - Deep warm brown */
+    --color-text-muted-zinc: #6B5E54;
+    /* Muted text - Warm gray-brown */
+
+    /* Accent - Terracotta/Saffron (Ayurvedic clay) */
+    --color-accent-clay: #C4502A;
+    /* Rich terracotta - Hindu temple orange */
+
+    /* Additional Light Mode Variables */
+    --color-border-light: rgba(45, 37, 32, 0.12);
+    --color-surface-hover: #E8E2D8;
+    --color-modal-bg: #FAF7F2;
+    --color-sidebar-bg: #F5F1EB;
+
+    /* Nature-inspired gradient colors */
+    --gradient-nature:
+      radial-gradient(ellipse 80% 60% at 10% 90%, rgba(139, 169, 131, 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 50% at 95% 80%, rgba(168, 186, 144, 0.10) 0%, transparent 45%),
+      radial-gradient(ellipse 70% 40% at 5% 20%, rgba(145, 161, 134, 0.08) 0%, transparent 40%),
+      radial-gradient(ellipse 50% 30% at 85% 10%, rgba(176, 196, 164, 0.06) 0%, transparent 35%);
+  }
+
+  /* Light mode nature background */
+  .light body,
+  .light #root {
+    background:
+      radial-gradient(ellipse 80% 60% at 10% 90%, rgba(139, 169, 131, 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 50% at 95% 80%, rgba(168, 186, 144, 0.10) 0%, transparent 45%),
+      radial-gradient(ellipse 70% 40% at 5% 20%, rgba(145, 161, 134, 0.08) 0%, transparent 40%),
+      radial-gradient(ellipse 50% 30% at 85% 10%, rgba(176, 196, 164, 0.06) 0%, transparent 35%),
+      #FAF7F2;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+  }
+
+  body {
+    @apply bg-warm-charcoal text-text-cream font-sans antialiased overflow-hidden transition-colors duration-300;
+  }
+
+  /* Custom Scrollbar for Dark Mode - HIDDEN but functional */
+  ::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Opera */
+  }
+
+  /* Firefox */
+  html {
+    scrollbar-width: none;
+  }
+
+  /* Premium Text Selection */
+  ::selection {
+    background-color: rgba(217, 119, 87, 0.3);
+    /* accent-clay with opacity */
+    color: #ffffff;
+  }
+}
+
+@layer utilities {
+  .animate-pulse-glow {
+    animation: pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  50% {
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+}

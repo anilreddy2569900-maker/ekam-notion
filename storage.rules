@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Strict User Ownership + File Hygiene
+    match /uploads/{userId}/{allPaths=**} {
+      
+      // 1. Must be authenticated
+      // 2. Must be the owner (userId matches auth.uid)
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId
+                   // 3. Max size 5MB
+                   && request.resource.size < 5 * 1024 * 1024
+                   // 4. Must be Image or PDF
+                   && request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // Default Deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

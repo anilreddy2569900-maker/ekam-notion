@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { ThinkingBubble } from './ThinkingBubble';
-import { AgentLoadingIndicator } from './AgentLoadingIndicator';
+import { ThinkingState } from './ThinkingState';
 
 export interface Message {
     id: string;
@@ -21,7 +21,7 @@ interface ChatAreaProps {
     loadingPhase?: 'gathering' | 'synthesizing' | 'done';
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAgents = [], loadingPhase = 'done' }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, loadingPhase = 'done' }) => {
     const endRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -176,37 +176,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
                 </motion.div>
             ))}
 
-            {/* Agent Loading Indicator - Shows which agents are being consulted */}
-            {isTyping && loadingPhase !== 'done' && activeAgents.length > 0 && (
-                <AgentLoadingIndicator activeAgents={activeAgents} phase={loadingPhase} />
+            {/* Neural Wait Animation - "The Synapse" (Complex Mode) */}
+            {isTyping && loadingPhase !== 'done' && (
+                <div className="w-full flex justify-center py-4">
+                    <ThinkingState />
+                </div>
             )}
 
-            {/* Fallback simple typing indicator for simple queries */}
-            {isTyping && (loadingPhase === 'done' || activeAgents.length === 0) && (
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-start gap-4 pl-1"
-                >
-                    <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center">
-                        <span className="font-serif text-xs text-text-muted-zinc">E</span>
-                    </div>
-                    <div className="flex items-center gap-3 pt-2">
-                        {/* Luxury Pulse Dot */}
-                        <motion.div
-                            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 2 }}
-                            className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                        />
-                        <motion.span
-                            animate={{ opacity: [0.4, 1, 0.4] }}
-                            transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                            className="text-sm font-serif text-text-muted-zinc italic tracking-wide"
-                        >
-                            Ekam is thinking...
-                        </motion.span>
-                    </div>
-                </motion.div>
+            {/* Standard Typing Bubble - "Express Lane" (Simple Mode) replaced by Fast Neural Sphere */}
+            {isTyping && loadingPhase === 'done' && (
+                <div className="w-full flex justify-center py-4">
+                    <ThinkingState mode="simple" />
+                </div>
             )}
             <div ref={endRef} />
         </div>

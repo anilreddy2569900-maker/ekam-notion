@@ -8,6 +8,8 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { runSwarm } from './swarm/engine';
+import { extractClinicalFacts, MemoryExtractionResult } from './swarm/memory';
+import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 
 // Initialize Firebase Admin
@@ -39,7 +41,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
             imageUrl,
             userProfile,
             chatHistorySummary,
-            location
+            location,
+            mode
         } = request.data;
 
         // Validate input
@@ -48,6 +51,7 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
         }
 
         console.log('[Ekam] Processing message:', message.substring(0, 100));
+        console.log('[Ekam] Mode:', mode || 'COMPLEX (Default)');
         console.log('[Ekam] User:', request.auth?.uid || 'anonymous');
 
         try {
@@ -76,7 +80,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 location,
                 imageBase64,
                 imageMimeType,
-                chatHistorySummary
+                chatHistorySummary,
+                mode // Pass the mode!
             );
 
             console.log('[Ekam] Response generated successfully');
@@ -106,5 +111,56 @@ export const healthCheck = onCall(
             engine: 'Ekam Swarm Engine',
             timestamp: new Date().toISOString()
         };
+    }
+);
+
+/**
+ * Flash Memory Extraction - Callable Function
+ * High-speed observer for clinical facts
+ */
+export const extractClinicalFactsCallable = onCall<{ text: string }, Promise<MemoryExtractionResult>>(
+    {
+        cors: true,
+        region: 'us-central1',
+        memory: '256MiB', // Lightweight
+        timeoutSeconds: 10, // Fast timeout
+        maxInstances: 100,
+    },
+    async (request) => {
+        if (!request.auth) {
+            console.warn('[Memory] Unauthenticated request');
+        }
+
+        const { text } = request.data;
+        if (!text || typeof text !== 'string') {
+            throw new HttpsError('invalid-argument', 'Text is required');
+        }
+        return await extractClinicalFacts(text);
+    }
+);
+
+/**
+ * Semantic Router - Callable Function
+ * Classifies query complexity
+ */
+export const classifyQueryCallable = onCall<{ text: string }, Promise<RouterResult>>(
+    {
+        cors: true,
+        region: 'us-central1',
+        memory: '256MiB',
+        timeoutSeconds: 5, // Very fast
+        maxInstances: 100,
+    },
+    async (request) => {
+        if (!request.auth) {
+            console.warn('[Router] Unauthenticated request');
+        }
+
+        const { text } = request.data;
+        if (!text || typeof text !== 'string') {
+            throw new HttpsError('invalid-argument', 'Text is required');
+        }
+
+        return await classifyQuery(text);
     }
 );

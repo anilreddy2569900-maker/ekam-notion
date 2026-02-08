@@ -7,7 +7,8 @@
 
 import { GenerativeModel, GenerateContentRequest, GenerateContentResult, Part } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel, getGroundedModel, getFallbackModel, BOSS_MODEL, AGENT_MODEL, ENON_MODEL, GEMINI_2_FLASH } from '../utils/vertexai';
+import { getGenerativeModel, getGroundedModel, getFallbackModel } from '../utils/vertexai';
+import { AGENT_TIERS, AI_CONFIG } from '../config/ai_config';
 import { AGENT_PROMPTS } from './agents';
 import { routeToAgents } from './router';
 import {
@@ -15,8 +16,7 @@ import {
     AgentResult,
     SwarmResult,
     UserProfile,
-    UserLocation,
-    ChatMessage
+    UserLocation
 } from './types';
 
 // WeatherAPI Configuration
@@ -77,6 +77,24 @@ function formatProfileContext(profile?: UserProfile): string {
     if (profile.medications) parts.push(`Medications: ${profile.medications}`);
     if (profile.goals) parts.push(`Health Goals: ${profile.goals}`);
 
+    // Dynamic Clinical Memory (Akasha Context Layer)
+    const standardKeys = ['gender', 'dateOfBirth', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'medications', 'goals'];
+    const dynamicFacts: string[] = [];
+
+    Object.entries(profile).forEach(([key, value]) => {
+        if (!standardKeys.includes(key) && typeof value === 'string' && value.trim().length > 0) {
+            // Format key from camelCase to Title Case (e.g., 'injuryHistory' -> 'Injury History')
+            const readableKey = key.replace(/([A-Z])/g, ' $1').trim();
+            const formattedKey = readableKey.charAt(0).toUpperCase() + readableKey.slice(1);
+            dynamicFacts.push(`- **${formattedKey}:** ${value}`);
+        }
+    });
+
+    if (dynamicFacts.length > 0) {
+        parts.push('\n**CLINICAL MEMORY & FACTS:**');
+        parts.push(...dynamicFacts);
+    }
+
     return parts.length > 0 ? `**User Profile:**\n${parts.join('\n')}` : '';
 }
 
@@ -107,7 +125,7 @@ async function generateWithRetry(model: GenerativeModel, request: GenerateConten
  */
 async function runAgent(
     agentKey: AgentKey,
-    query: string,
+    userMessage: string,
     userContext?: string,
     location?: UserLocation,
     imageBase64?: string,
@@ -116,15 +134,20 @@ async function runAgent(
 ): Promise<AgentResult> {
     const systemInstruction = AGENT_PROMPTS[agentKey];
 
-    // Get appropriate model
+    // Get appropriate model type based on agent complexity (TIERED SYSTEM)
+    // Configured in ai_config.ts
+    const tier = AGENT_TIERS[agentKey] || 'FLASH'; // Default to Flash if missing
+
     let model: GenerativeModel;
-    let modelId = agentKey === 'environment' ? ENON_MODEL : AGENT_MODEL;
 
     if (agentKey === 'environment') {
         model = getGroundedModel(systemInstruction);
     } else {
-        model = getGenerativeModel({ systemInstruction, model: modelId });
+        // Use the Tiered Factory
+        model = getGenerativeModel({ systemInstruction, tier });
     }
+
+    const usedModelId = AI_CONFIG.models[tier];
 
     // New: Fetch specific weather details if Environment Agent
     let weatherContext = '';
@@ -134,7 +157,7 @@ async function runAgent(
 
     // Build prompt text with enhanced deep thinking prompt
     const promptText = `
-**User Query:** ${query}
+**User Query:** ${userMessage}
 
 ${userContext || ''}
 ${location && agentKey === 'environment' ? `**USER CURRENT LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}\n${weatherContext || '(Use Google Search to find real-time Air Quality, UV, and weather for THESE COORDINATES)'}` : ''}
@@ -158,17 +181,17 @@ ${peerContext ? '(REFINED BASED ON COLLEAGUE INPUT)' : ''}
 ### STEP 1 - DEEP OBSERVATION
 Carefully identify ALL relevant symptoms, patterns, and clues.
 
-### STEP 2 - CLINICAL REASONING  
-Think through the possibilities step-by-step.
+### STEP 2 - ACTIONABLE INSIGHTS (VALUE FIRST)
+Based on what you see, what is the user's "Hidden Story"?
+What should they DO right now? Provide specific advice.
 
 ### STEP 3 - CROSS-DOMAIN CONNECTIONS
 ${peerContext ? '**CRITICAL:** specificially reference your colleagues findings.' : 'Consider the bigger picture.'}
 
-### STEP 4 - CRITICAL QUESTIONS
-What specific information do you NEED from the user?
-
-### STEP 5 - PRELIMINARY ASSESSMENT
+### STEP 4 - REFINEMENT (OPTIONAL)
 State your working hypothesis.
+Reference specific missing data ONLY if it blocks safety or critical advice.
+Limit to 1 question MAX.
 
 ---
 
@@ -194,7 +217,7 @@ State your working hypothesis.
         const jitter = Math.floor(Math.random() * 500);
         await new Promise(resolve => setTimeout(resolve, jitter));
 
-        logger.info(`[Agent] Trying ${agentKey} with ${modelId}...`);
+        logger.info(`[Agent] Trying ${agentKey} with Tier ${tier} (${usedModelId})...`);
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts }],
             generationConfig: {
@@ -216,11 +239,11 @@ State your working hypothesis.
         return { agent: agentKey, note: textResponse };
 
     } catch (error) {
-        logger.warn(`[Agent] ${agentKey} primary model (${modelId}) failed, falling back to Gemini 2.0 Flash...`);
+        logger.warn(`[Agent] ${agentKey} primary model (${usedModelId}) failed, falling back to Gemini 1.5 Flash...`);
 
         try {
-            // Fallback to Gemini 2.0 Flash (us-central1)
-            const fallbackModel = getFallbackModel({ systemInstruction, model: GEMINI_2_FLASH });
+            // Fallback to Gemini 1.5 Flash (us-central1 / Stable Tier)
+            const fallbackModel = getFallbackModel({ systemInstruction, model: 'gemini-1.5-flash' });
 
             const result = await generateWithRetry(fallbackModel, {
                 contents: [{ role: 'user', parts }],
@@ -247,13 +270,15 @@ State your working hypothesis.
  * Run the Orchestrator to synthesize all agent insights into a cohesive response
  */
 async function runOrchestrator(
-    query: string,
+    userMessage: string,
     agentNotes: AgentResult[],
     userContext?: string
 ): Promise<string> {
     const systemInstruction = AGENT_PROMPTS['orchestrator'];
-    // "Boss" uses Pro model with "High Thinking"
-    const model: GenerativeModel = getGenerativeModel({ systemInstruction, model: BOSS_MODEL });
+
+    // "Boss" uses Tier 2 (PRO) for "High Thinking" configuration
+    const tier = AGENT_TIERS['orchestrator']; // Should be 'PRO'
+    const model: GenerativeModel = getGenerativeModel({ systemInstruction, tier });
 
     // Format agent notes for orchestrator
     const notesFormatted = agentNotes
@@ -261,7 +286,7 @@ async function runOrchestrator(
         .join('\n\n---\n\n');
 
     const promptText = `
-**Original User Query:** ${query}
+**Original User Query:** ${userMessage}
 
 ${userContext || ''}
 
@@ -277,21 +302,31 @@ ${notesFormatted}
 
 Based on all the specialist analyses above, create a unified, helpful response for the user. You MUST:
 
-1. **START by asking clarifying questions** - The specialists have identified areas needing more information. Present the most important 2-3 questions to the user FIRST.
+1. **START by answering the user's intent** - The specialists have identified the likely issue. Tell the user what is happening and what to do. Provide the "Hidden Story" immediately.
 
 2. **Acknowledge patterns** - Note how different symptoms may be connected across specialties.
 
-3. **Provide preliminary insights** - Share what the specialists' combined analysis suggests, while noting this is not a final diagnosis.
+3. **Provide PRELIMINARY ADVICE** - Share actionable steps they can take TODAY based on current data. Do not wait for more info.
 
 4. **Keep it conversational** - Don't just list bullet points. Speak naturally and empathetically.
 
-5. **Never give a definitive diagnosis** - Always recommend professional consultation for serious concerns.
+5. **Refinement (Optional)** - Only if absolutely necessary, ask ONE clarifying question at the very end.
 
-Format your response in a warm, professional tone. Start with the clarifying questions before providing any assessment.
+### ACTIVE LISTENING & MEMORY UPDATE (CRITICAL)
+If the user mentions a NEW medical fact, preference, or update (e.g., "I stopped eating dairy", "I have a new injury on my left knee", "My skin is now dry"), you MUST update their profile.
+Append this exact tag at the END of your response (hidden from user):
+||PROFILE_UPDATE: {"Category": "Value"}||
+
+Examples:
+- User: "I'm vegan now." -> ||PROFILE_UPDATE: {"diet": "Vegan"}||
+- User: "I broke my arm." -> ||PROFILE_UPDATE: {"injuryHistory": "Broken Arm (Current)"}||
+- User: "I hate pills." -> ||PROFILE_UPDATE: {"medicationPreference": "Avoid pills if possible"}||
+
+Format your response in a warm, professional tone. Start with the INSIGHTS regarding their situation.
 `;
 
     try {
-        logger.info(`[Orchestrator] Trying with ${BOSS_MODEL}...`);
+        logger.info(`[Orchestrator] Trying with Tier ${tier}...`);
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts: [{ text: promptText }] }],
             generationConfig: {
@@ -309,11 +344,11 @@ Format your response in a warm, professional tone. Start with the clarifying que
         return response?.candidates?.[0]?.content?.parts?.[0]?.text ||
             "I apologize, but I'm having trouble synthesizing the analysis. Please try again.";
     } catch (error) {
-        console.warn(`[Orchestrator] ${BOSS_MODEL} failed, falling back to Gemini 2.0 Flash...`);
+        console.warn(`[Orchestrator] Primary Tier failed, falling back to Gemini 1.5 Flash...`);
 
         try {
-            // Fallback to Gemini 2.0 Flash (us-central1)
-            const fallbackModel = getFallbackModel({ systemInstruction, model: GEMINI_2_FLASH });
+            // Fallback to Gemini 1.5 Flash (us-central1)
+            const fallbackModel = getFallbackModel({ systemInstruction, model: 'gemini-1.5-flash' });
             const result = await generateWithRetry(fallbackModel, {
                 contents: [{ role: 'user', parts: [{ text: promptText }] }],
                 generationConfig: {
@@ -340,13 +375,62 @@ Format your response in a warm, professional tone. Start with the clarifying que
  */
 export async function runSwarm(
     query: string,
-    history?: ChatMessage[],
+    history: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
     userProfile?: UserProfile,
     location?: UserLocation,
     imageBase64?: string,
     imageMimeType?: string,
-    chatHistorySummary?: string
+    chatHistorySummary?: string,
+    mode: 'SIMPLE' | 'COMPLEX' = 'COMPLEX' // Default to full power
 ): Promise<SwarmResult> {
+
+    // ----------------------------------------------------------------------
+    // EXPRESS LANE (SIMPLE QUERIES)
+    // ----------------------------------------------------------------------
+    if (mode === 'SIMPLE') {
+        // USE TIER 1 (FLASH) for Express Lane
+        const model = getGenerativeModel({ tier: 'FLASH' });
+
+        const expressPrompt = `
+        You are Ekam, a helpful and friendly health assistant.
+        The user has asked a simple question or greeting.
+        Answer concisely, warmly, and directly.
+        Do NOT analyze symptoms. Do NOT provide medical advice (unless it's general knowledge).
+        If the user suddenly pivots to a complex medical issue, answer briefly and suggest they ask for a detailed checkup.
+        
+        Use the user's name if known from context (but don't hallucinate one).
+        
+        User Query: ${query}
+        `;
+
+        try {
+            const result = await model.generateContent({
+                contents: [
+                    ...history,
+                    { role: 'user', parts: [{ text: expressPrompt }] }
+                ],
+            });
+
+            const response = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "I'm here to help!";
+
+            return {
+                response,
+                agentNotes: [], // No agents consulted
+                symptoms: [],
+                // Added these fields to match SwarmResult type, assuming they are not relevant for SIMPLE mode
+                consultations: [],
+                usedCouncil: false
+            };
+        } catch (e) {
+            console.error('[Ekam Express] Failed, falling back to Swarm:', e);
+            // Fallback to normal execution if Express fails
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // COUNCIL LANE (COMPLEX QUERIES)
+    // ----------------------------------------------------------------------
+    logger.info('[Ekam] Starting Swarm Execution (Council Lane)...');
     // 1. BUILD CONTEXT
     let contextString = formatProfileContext(userProfile);
     if (location) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { db, doc, setDoc, getDoc, serverTimestamp } from '../lib/firebase';
+import { db, doc, setDoc, getDoc, onSnapshot, serverTimestamp } from '../lib/firebase';
 import { ArrowLeft, Save, Check, HelpCircle, Plus, X } from 'lucide-react';
 import { HelpModal } from './HelpModal';
 
@@ -35,23 +35,31 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         conditions: '',
     });
 
+
+
+    // ... (rest of imports)
+
     useEffect(() => {
-        const loadProfile = async () => {
-            if (!user) return;
-            try {
-                const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
+        if (!user) return;
+
+        const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+
+        // Real-time listener
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                // Only update form data if we are NOT currently saving (avoid fighting with user input)
+                if (!isSaving) {
                     setFormData(docSnap.data() as any);
                 }
-            } catch (error) {
-                console.error("Error loading profile:", error);
-            } finally {
-                setIsLoading(false);
             }
-        };
-        loadProfile();
-    }, [user]);
+            setIsLoading(false);
+        }, (error) => {
+            console.error("Error listening to profile:", error);
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [user, isSaving]);
 
     const updateData = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));

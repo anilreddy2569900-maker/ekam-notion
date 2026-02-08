@@ -1,86 +1,105 @@
 /**
- * EKAM SWARM - Query Router
+ * EKAM SWARM - Semantic Router
  * 
- * Routes user queries to appropriate specialist agents based on keyword triggers
+ * Classifies user queries to determine the appropriate processing lane.
+ * LOW LATENCY is the priority here.
  */
 
-import { RoutableAgentKey } from './types';
+import { GenerativeModel } from '@google-cloud/vertexai';
+import * as logger from 'firebase-functions/logger';
+import { getGenerativeModel } from '../utils/vertexai';
+import { AgentKey } from './types';
 
-// ============================================================================
-// AGENT TRIGGERS (Keyword -> Agent mapping)
-// ============================================================================
+export type QueryComplexity = 'SIMPLE' | 'COMPLEX';
 
-const AGENT_TRIGGERS: Record<RoutableAgentKey, string[]> = {
-    dermatologist: [
-        'skin', 'acne', 'hair', 'scalp', 'rash', 'pimple', 'wrinkle', 'sunscreen',
-        'moisturizer', 'eczema', 'psoriasis', 'dandruff', 'oily', 'dry skin', 'glow',
-        'pigmentation', 'dark spots', 'texture', 'skincare', 'face', 'chin', 'forehead',
-        'cheek', 'nose', 'pore', 'breakout', 'cleanser', 'serum', 'toner', 'cream',
-        'lotion', 'picture', 'image', 'photo', 'analyze'
-    ],
-    metabolic: [
-        'diet', 'food', 'nutrition', 'weight', 'fat', 'metabolism', 'sugar', 'carbs',
-        'protein', 'calories', 'gut', 'digestion', 'bloating', 'inflammation', 'microbiome',
-        'eating', 'meal', 'breakfast', 'lunch', 'dinner', 'vegetarian', 'vegan', 'bmi',
-        'lean', 'thin', 'skinny', 'overweight', 'obese', 'dairy'
-    ],
-    somatic: [
-        'exercise', 'workout', 'gym', 'fitness', 'muscle', 'strength', 'cardio', 'running',
-        'yoga', 'injury', 'pain', 'knee', 'back', 'shoulder', 'mobility', 'flexibility',
-        'sports', 'training', 'posture', 'stretch'
-    ],
-    neuro: [
-        'sleep', 'sleeping', 'insomnia', 'tired', 'tiredness', 'fatigue', 'fatigued',
-        'stress', 'stressed', 'anxiety', 'anxious', 'focus', 'concentration', 'brain',
-        'mood', 'depression', 'depressed', 'energy', 'motivation', 'dopamine', 'melatonin',
-        'circadian', 'nap', 'wake', 'waking', 'rest', 'restless'
-    ],
-    guardian: [
-        'blood test', 'lab report', 'cholesterol', 'glucose', 'hba1c', 'thyroid', 'vitamin',
-        'deficiency', 'cancer', 'screening', 'biomarker', 'hemoglobin', 'creatinine',
-        'liver', 'kidney', 'report', 'test result'
-    ],
-    vitalist: [
-        'heart', 'blood pressure', 'bp', 'pulse', 'hrv', 'cardiac', 'immune', 'cold',
-        'flu', 'fever', 'infection', 'immunity', 'vo2', 'cardiovascular', 'breathing', 'breath'
-    ],
-    endocrine: [
-        'hormone', 'testosterone', 'estrogen', 'thyroid', 'period', 'cycle', 'menstrual',
-        'pcos', 'libido', 'fertility', 'adrenal', 'cortisol', 'hormonal'
-    ],
-    environment: [
-        'air quality', 'pollution', 'aqi', 'weather', 'humidity', 'uv', 'water', 'tds',
-        'season', 'allergy', 'pollen', 'climate', 'temperature', 'environment', 'location',
-        'shower', 'bathing', 'waxy', 'sticky', 'hard water', 'calcium', 'mineral'
-    ]
-};
-
-/**
- * Route a query to the appropriate specialist agents
- * Returns an array of agent keys that should handle the query
- */
-export function routeToAgents(query: string): RoutableAgentKey[] {
-    const lowerQuery = query.toLowerCase();
-    const selectedAgents: RoutableAgentKey[] = [];
-
-    // Check each agent's triggers
-    for (const [agent, triggers] of Object.entries(AGENT_TRIGGERS)) {
-        const isTriggered = triggers.some((trigger: string) => lowerQuery.includes(trigger));
-        if (isTriggered) {
-            selectedAgents.push(agent as RoutableAgentKey);
-        }
-    }
-
-    // Default to neuro (general wellness) if no specific agent is triggered
-    if (selectedAgents.length === 0) {
-        return ['neuro'];
-    }
-
-    return selectedAgents;
+export interface RouterResult {
+    type: QueryComplexity;
+    reason?: string;
 }
 
 /**
- * Threshold for activating multi-agent Council mode
- * If more than this many agents are selected, use full swarm
+ * Classifies the complexity of a user query
  */
-export const COUNCIL_THRESHOLD = 1;
+export async function classifyQuery(text: string): Promise<RouterResult> {
+    const systemInstruction = `
+    You are a Semantic Router for a health AI.
+    Classify the user query into one of two categories:
+
+    SIMPLE:
+    - Greetings ("Hi", "Hello", "Thanks")
+    - General knowledge ("What is protein?", "Benefits of water")
+    - UI navigation ("Where is my profile?", "How do I upload?")
+    - Compliments / Small talk
+    - Clarifications of previous simple answers
+
+    COMPLEX:
+    - Symptoms ("My chest hurts", "I feel dizzy")
+    - Medical history ("I have diabetes", "I had surgery")
+    - Lab report interpretation
+    - Personal health advice ("Diet for my condition")
+    - Complex multi-part questions
+
+    Output JSON ONLY: { "type": "SIMPLE" } or { "type": "COMPLEX" }
+    `;
+
+    // Use Tier 1 (Flash) for max speed and cost efficiency
+    const model: GenerativeModel = getGenerativeModel({
+        systemInstruction,
+        tier: 'FLASH'
+    });
+
+    try {
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text }] }],
+            generationConfig: {
+                maxOutputTokens: 20, // Extremely short response
+                temperature: 0, // Deterministic
+                responseMimeType: 'application/json'
+            }
+        });
+
+        const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!responseText) {
+            // Default to COMPLEX for safety if classification fails
+            return { type: 'COMPLEX', reason: 'Empty response' };
+        }
+
+        const parsed = JSON.parse(responseText) as RouterResult;
+        return parsed;
+
+    } catch (error) {
+        logger.error('[Router] Classification failed:', error);
+        // Fail safe: assume complex to ensure full analysis
+        return { type: 'COMPLEX', reason: 'Error' };
+    }
+}
+
+/**
+ * Routes the query to the appropriate specialists
+ */
+export function routeToAgents(query: string): AgentKey[] {
+    const q = query.toLowerCase();
+    const agents: Set<AgentKey> = new Set();
+
+    // Always include Environment for context (it's cheap/fast)
+    agents.add('environment');
+
+    // Simple keyword mapping (Fast & Deterministic)
+    // In a future update, this could be an LLM call, but regex is faster for now
+
+    if (/(heart|cardio|chest|pulse|bp|blood pressure)/.test(q)) agents.add('vitalist');
+    if (/(skin|rash|itch|derm|hair|face)/.test(q)) agents.add('dermatologist');
+    if (/(sleep|insomnia|tired|fatigue|energy|mood|stress|anxiety)/.test(q)) agents.add('neuro');
+    if (/(stomach|gut|digest|eat|food|diet|weight|bloat)/.test(q)) agents.add('metabolic');
+    if (/(hormone|thyroid|sugar|diabetes|period|cycle)/.test(q)) agents.add('endocrine');
+
+    // Default to Vitalist (General GP) if no specific match
+    if (agents.size === 1) { // Only environment
+        agents.add('vitalist');
+    }
+
+    // Agent "Guardian" is implicit in the Orchestrator's safety check, so we don't explicitly route to it 
+    // unless strictly needed, but for now let's keep it simple.
+
+    return Array.from(agents);
+}

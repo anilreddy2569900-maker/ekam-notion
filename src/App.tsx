@@ -9,8 +9,8 @@ import { ProfileSettings } from './components/ProfileSettings';
 import { MedicalRepository } from './components/MedicalRepository';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
-import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, getDoc, getDocs, limit, updateDoc, ref, uploadBytes, getDownloadURL } from './lib/firebase';
-import { sendMessageToEkam, generateChatTitle } from './lib/ekam_api';
+import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
+import { sendMessageToEkam, generateChatTitle, extractMemory, routeQuery } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
 
@@ -105,34 +105,32 @@ const App: React.FC = () => {
     }
   };
 
-  // Check for Health Data
+  // Check for Health Data (Real-time Listener)
   useEffect(() => {
-    const checkProfile = async () => {
-      if (!user) {
-        setHasProfile(null);
-        setUserProfile(null);
-        return;
-      }
+    if (!user) {
+      setHasProfile(null);
+      setUserProfile(null);
+      return;
+    }
 
-      try {
-        const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-        const profileSnap = await getDoc(profileRef);
-        if (profileSnap.exists()) {
-          setHasProfile(true);
-          setUserProfile(profileSnap.data()); // Store full profile for AI context
-          console.log('[App] Loaded user profile:', profileSnap.data());
-        } else {
-          setHasProfile(false);
-          setUserProfile(null);
-        }
-      } catch (error) {
-        console.error("Error checking profile:", error);
-        // Default to false on error to let them try creating it again or handle safer
+    const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+
+    // Real-time listener for profile changes
+    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setHasProfile(true);
+        setUserProfile(docSnap.data()); // Store full profile for AI context
+        console.log('[App] User profile updated:', docSnap.data());
+      } else {
         setHasProfile(false);
         setUserProfile(null);
       }
-    };
-    checkProfile();
+    }, (error) => {
+      console.error("Error listening to profile:", error);
+      setHasProfile(false); // Fallback
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
 
@@ -279,15 +277,73 @@ const App: React.FC = () => {
         parts: [{ text: m.content }]
       }));
 
-      // Determine which agents will be consulted and start loading indicator
+      // ----------------------------------------------------------------------
+      // SEMANTIC ROUTER (GATEKEEPER)
+      // ----------------------------------------------------------------------
+      // Determine if this is a SIMPLE or COMPLEX query
+      const mode = await routeQuery(text);
+      console.log(`[App] Query routed to: ${mode} mode`);
+
+      // Determine Agents (only relevant for COMPLEX mode really, but good for tracking)
       const selectedAgents = routeToAgents(text);
-      if (selectedAgents.length > 1) {
-        setActiveAgents(selectedAgents);
+      setActiveAgents(selectedAgents);
+
+      // CONDITIONAL ANIMATION START
+      if (mode === 'COMPLEX') {
+        // Trigger Neural Sphere for complex reasoning
         setLoadingPhase('gathering');
+      } else {
+        // For Express Lane (Simple), we will just let the "Typing..." state handle it
+        // But we need to ensure ThinkingBubble handles 'gathering' vs 'express'
+        // We'll set a special phase or handled by loadingPhase being 'done' but isTyping=true?
+        // Actually, ThinkingState only shows if loadingPhase is 'gathering' or 'synthesizing'.
+        // So if we DON'T set gathering, it won't show. Perf!
+        // Standard ChatArea "isTyping" is active, so it will show dots if we have a component for it.
+        // Current ChatArea implies it might not have standard dots if ThinkingState replaced it? 
+        // Let's check ChatArea next. For now, assume isTyping=true is enough for simple UI.
       }
 
-      // Send to Ekam Swarm Engine (Cloud Functions) with user profile context, cross-chat memory, and health records
-      const ekamResponse = await sendMessageToEkam(text, historyForApi, imageUrl, userProfile, chatHistorySummary, healthRecords, location);
+      // ----------------------------------------------------------------------
+      // FLASH MEMORY (OBSERVER LAYER) - High-speed parallel execution
+      // ----------------------------------------------------------------------
+      extractMemory(text).then(async (facts) => {
+        if (facts && facts.length > 0) {
+          console.log('[App] Flash Memory captured:', facts);
+          const updates: Record<string, any> = {};
+
+          facts.forEach(f => {
+            // Create a readable key for the fact
+            // Simple fallback key gen, ideally we use what the LLM gave if it was a key-value pair,
+            // but here we are receiving {category, fact}.
+            // Let's store it dynamically as "Category: Fact".
+            const storageKey = f.category;
+            if (f.action === 'add' || f.action === 'update') {
+              updates[storageKey] = f.fact;
+            } else if (f.action === 'remove') {
+              updates[storageKey] = deleteField(); // Special handling needed for delete field
+            }
+          });
+
+          if (Object.keys(updates).length > 0) {
+            // 1. Optimistic UI Update
+            setUserProfile(prev => ({ ...prev, ...updates }));
+
+            // 2. Database Update (Fire & Forget)
+            try {
+              const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+              await updateDoc(profileRef, updates); // Note: deleteDoc() in updateDoc works for fields? No, needs deleteField()
+            } catch (e) {
+              console.error('[App] Flash Memory save failed:', e);
+            }
+          }
+        }
+      });
+
+      // Send to Ekam Swarm Engine (Cloud Functions) - Main Thread
+      const ekamResponsePromise = sendMessageToEkam(text, historyForApi, imageUrl, userProfile, chatHistorySummary, healthRecords, location, mode);
+
+      // Wait for main response (don't technically need to wait for memory, but good for cleanup)
+      const ekamResponse = await ekamResponsePromise;
 
       // CHECK FOR PROFILE UPDATES
       // Format: ||PROFILE_UPDATE: {"skinType": "Oily", "conditions": "Acne detected"}||
@@ -310,10 +366,13 @@ const App: React.FC = () => {
         }
       }
 
-      // Move to synthesizing phase briefly before completion
-      if (selectedAgents.length > 1) {
+      // ----------------------------------------------------------------------
+      // ANIMATION CONCLUSION
+      // ----------------------------------------------------------------------
+      if (mode === 'COMPLEX') {
+        // Move to synthesizing phase briefly before completion
         setLoadingPhase('synthesizing');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for animation
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Ensure animation is visible for at least 2s for "The Neural Wait" effect
       }
 
       // Reset loading state

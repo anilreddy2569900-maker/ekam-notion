@@ -1,57 +1,45 @@
-import { VertexAI } from '@google-cloud/vertexai';
+import { VertexAI, GenerativeModel } from '@google-cloud/vertexai';
+import { AI_CONFIG, ModelTier } from '../config/ai_config';
 
 // Project configuration
 const PROJECT_ID = 'project-health-de9dd';
 
 // ============================================================================
-// DUAL CLIENT ARCHITECTURE
+// DUAL CLIENT ARCHITECTURE (STRICT ENDPOINT ENFORCEMENT)
 // ============================================================================
 
-// Client A: Regional (us-central1) - For stable Gemini 2.0 models
+// Client A: Regional (us-central1)
+// Explicitly targeting the US-Central1 endpoint
 const vertexAIRegional = new VertexAI({
     project: PROJECT_ID,
-    location: 'us-central1',
+    location: AI_CONFIG.location.regional,
+    apiEndpoint: 'us-central1-aiplatform.googleapis.com', // FORCE THIS
 });
 
-// Client B: Global - For Gemini 3 Preview models
+// Client B: Global - For Gemini 3 Preview / Experimental models
+// Explicitly targeting the Global endpoint
 const vertexAIGlobal = new VertexAI({
     project: PROJECT_ID,
-    location: 'global',
+    location: AI_CONFIG.location.global,
+    apiEndpoint: 'aiplatform.googleapis.com', // FORCE THIS
 });
 
 // ============================================================================
-// MODEL CONFIGURATION
-// ============================================================================
-
-// Primary Models (Gemini 3 - uses global client)
-export const GEMINI_3_PRO = 'gemini-3-pro-preview';      // Location: global
-export const GEMINI_3_FLASH = 'gemini-3-flash-preview';  // Location: global
-
-// Fallback Models (Gemini 2.5 - uses regional client)
-export const GEMINI_2_FLASH = 'gemini-2.5-flash';    // Location: us-central1 (GA, stable until June 2026)
-
-// Agent Configuration
-export const BOSS_MODEL = GEMINI_3_PRO;      // Orchestrator uses Pro
-export const AGENT_MODEL = GEMINI_3_PRO;     // Specialist agents use Pro
-export const ENON_MODEL = GEMINI_3_FLASH;    // Environment agent uses Flash
-
-// Legacy exports for compatibility
-export const MODEL_FLASH = ENON_MODEL;
-export const MODEL_PRO = AGENT_MODEL;
-
-// ============================================================================
-// ROUTING LOGIC: Select correct client based on model name
+// ROUTING LOGIC
 // ============================================================================
 
 /**
- * Get the appropriate Vertex AI client based on model name
- * Gemini 3 models -> Global client
- * Gemini 2 models -> Regional client
+ * Get the appropriate Vertex AI client based on the Model Tier
+ * All "Gemini 3" / Tier 1 & 2 models are currently GLOBAL only.
  */
-function getClientForModel(modelId: string) {
-    if (modelId.includes('gemini-3') || modelId.includes('gemini-3')) {
+export function getModelClient(tier: ModelTier): VertexAI {
+    // Current Strategy: Both Flash and Pro (Gemini 3/Exp) are Global
+    if (tier === 'FLASH' || tier === 'PRO') {
         return vertexAIGlobal;
     }
+    // Fallback? NO. STRICT MODE.
+    // If not Flash or Pro, default to Global as per instruction to prioritize Gemini 3.
+    // However, if we must fallback, use regional.
     return vertexAIRegional;
 }
 
@@ -59,16 +47,26 @@ function getClientForModel(modelId: string) {
 // MODEL FACTORY FUNCTIONS
 // ============================================================================
 
+export interface GenerativeModelOptions {
+    systemInstruction?: string;
+    tools?: any[];
+    model?: string;     // Legacy/Specific model ID override
+    tier?: ModelTier;   // Preferred way: 'FLASH' or 'PRO'
+}
+
 /**
  * Get a generative model with automatic client routing
  */
-export function getGenerativeModel(options: {
-    systemInstruction?: string;
-    tools?: any[];
-    model?: string;
-}) {
-    const modelId = options.model || MODEL_PRO;
-    const client = getClientForModel(modelId);
+export function getGenerativeModel(options: GenerativeModelOptions): GenerativeModel {
+    // 1. Determine Tier
+    const tier = options.tier || 'PRO'; // Default to PRO (Reasoning) if not specified
+
+    // 2. Determine Model ID
+    // If specific model ID is provided, use it. Otherwise use the ID from the Tier config.
+    const modelId = options.model || AI_CONFIG.models[tier];
+
+    // 3. Select Client
+    const client = getModelClient(tier);
 
     return client.getGenerativeModel({
         model: modelId,
@@ -78,31 +76,38 @@ export function getGenerativeModel(options: {
 }
 
 /**
- * Get a grounded search model (uses Gemini 3 Flash with global client)
+ * Get a grounded search model (Uses Environment / Speed Tier)
  */
-export function getGroundedModel(systemInstruction: string) {
-    // Environment agent uses Gemini 3 Flash with grounding
-    return vertexAIGlobal.getGenerativeModel({
-        model: ENON_MODEL,
+export function getGroundedModel(systemInstruction: string): GenerativeModel {
+    // Environment agent uses FLASH (Tier 1) with grounding
+    // Since it's FLASH, it uses the Global client
+    const client = getModelClient('FLASH');
+
+    return client.getGenerativeModel({
+        model: AI_CONFIG.models.FLASH,
         systemInstruction: systemInstruction,
         tools: [{ googleSearchRetrieval: {} }],
     });
 }
 
 /**
- * Get a fallback model (Gemini 2.0 Flash with regional client)
- * Used when Gemini 3 models are unavailable
+ * Get a fallback model (Regional)
+ * Used when Global/Preview models are unavailable
  */
 export function getFallbackModel(options: {
     systemInstruction?: string;
     model?: string;
-}) {
-    // Always use regional client for fallback
+}): GenerativeModel {
+    // Configured to use Regional client
     return vertexAIRegional.getGenerativeModel({
-        model: options.model || GEMINI_2_FLASH,
+        model: options.model || 'gemini-1.5-flash',
         systemInstruction: options.systemInstruction,
     });
 }
+
+// Export model IDs for external reference if needed
+export const MODEL_FLASH = AI_CONFIG.models.FLASH;
+export const MODEL_PRO = AI_CONFIG.models.PRO;
 
 // Export clients for advanced usage
 export { vertexAIRegional, vertexAIGlobal };

@@ -65,6 +65,7 @@ export interface SwarmResult {
     agentNotes: { agent: AgentKey; note: string }[];
     consultations?: Consultation[];
     symptoms?: { symptom: string; severity: string; timestamp: string }[];
+    usedCouncil?: boolean;
 }
 
 // Request payload for processMessage
@@ -75,4 +76,5 @@ export interface ProcessMessageRequest {
     userProfile?: UserProfile;
     chatHistorySummary?: string;
     location?: UserLocation;
+    mode?: 'SIMPLE' | 'COMPLEX';
 }

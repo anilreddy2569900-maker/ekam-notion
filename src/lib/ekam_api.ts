@@ -27,6 +27,7 @@ interface SwarmRequest {
     userProfile?: Record<string, unknown>;
     chatHistorySummary?: string;
     location?: { lat: number; lng: number };
+    mode?: 'SIMPLE' | 'COMPLEX';
 }
 
 interface SwarmResult {
@@ -81,7 +82,8 @@ export async function sendMessageToEkam(
     userProfile?: Record<string, unknown> | null,
     chatHistorySummary?: string,
     healthRecords?: { fileName: string; fileType: string; uploadedAt: unknown }[],
-    location?: { lat: number; lng: number } | null
+    location?: { lat: number; lng: number } | null,
+    mode: 'SIMPLE' | 'COMPLEX' = 'COMPLEX'
 ): Promise<EkamResponse> {
     try {
         // Build request payload
@@ -92,6 +94,7 @@ export async function sendMessageToEkam(
             userProfile: userProfile ? formatProfileForAPI(userProfile) : undefined,
             chatHistorySummary: chatHistorySummary || undefined,
             location: location || undefined,
+            mode
         };
 
         // Add health records context to the message if available
@@ -159,5 +162,81 @@ export async function healthCheck(): Promise<boolean> {
     } catch (error) {
         console.error('[Ekam API] Health check failed:', error);
         return false;
+    }
+}
+
+// ============================================================================
+// SEMANTIC ROUTER API
+// ============================================================================
+
+export type QueryComplexity = 'SIMPLE' | 'COMPLEX';
+
+export interface RouterResult {
+    type: QueryComplexity;
+    reason?: string;
+}
+
+const classifyQueryFn = httpsCallable<{ text: string }, RouterResult>(functions, 'classifyQueryCallable');
+
+/**
+ * Classify the user query complexity to determine the processing lane.
+ * Returns 'SIMPLE' (Express Lane) or 'COMPLEX' (Council Lane).
+ */
+export async function routeQuery(text: string): Promise<QueryComplexity> {
+    // 1. LOCAL HEURISTICS (Zero Latency)
+    // Check for obvious simple greetings/commands to save a cloud call
+    const lower = text.toLowerCase().trim();
+    const simplePatterns = [
+        /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)$/,
+        /^(ok|okay|thanks|thank you|cool|great|awesome|bye|goodbye)$/,
+        /^(who are you|what is this|help|menu|restart|reset)$/
+    ];
+
+    if (lower.length < 50 && simplePatterns.some(p => p.test(lower))) {
+        console.log('[Ekam Router] Local match: SIMPLE');
+        return 'SIMPLE';
+    }
+
+    try {
+        console.log('[Ekam Router] Classifying query...');
+        const result = await classifyQueryFn({ text });
+        const classification = result.data.type || 'COMPLEX'; // Default to Complex for safety
+        console.log('[Ekam Router] Classification:', classification);
+        return classification;
+    } catch (error) {
+        console.warn('[Ekam Router] Classification failed (defaulting to COMPLEX):', error);
+        return 'COMPLEX';
+    }
+}
+
+// ============================================================================
+// FLASH MEMORY API
+// ============================================================================
+
+export interface ClinicalFact {
+    category: string;
+    fact: string;
+    action: 'add' | 'remove' | 'update';
+}
+
+const extractFactsFn = httpsCallable<{ text: string }, { facts: ClinicalFact[] }>(functions, 'extractClinicalFactsCallable');
+
+/**
+ * Rapidly extract clinical facts from user text
+ * Returns immediately for optimistic UI updates
+ */
+export async function extractMemory(text: string): Promise<ClinicalFact[]> {
+    try {
+        console.log('[Ekam Memory] extracting facts...');
+        const result = await extractFactsFn({ text });
+        const facts = result.data.facts || [];
+
+        if (facts.length > 0) {
+            console.log('[Ekam Memory] Extracted:', facts);
+        }
+        return facts;
+    } catch (error) {
+        console.warn('[Ekam Memory] Extraction failed (non-critical):', error);
+        return [];
     }
 }

@@ -382,12 +382,8 @@ How does hormone dysfunction explain the other symptoms?
 
 **Pattern Analysis:** This symptom constellation is TEXTBOOK HYPOTHYROIDISM:
 - Cold extremities = slowed metabolism, reduced heat production
-- Dry skin/hair loss = reduced protein synthesis
-- Bloating after protein = hypochlorhydria (low stomach acid, very common in hypothyroid)
-- Fatigue immediately after eating = poor cellular ATP production
-- Nocturnal heart racing = body trying to compensate for slowed metabolism
-
-**Recommendation:** This needs thyroid panel ASAP: TSH, Free T4, Free T3, TPO antibodies, Thyroglobulin antibodies. This combination of symptoms with blood work confirmation would warrant treatment discussion."
+**5. REFINEMENT (OPTIONAL):**
+Only ask ONE question if necessary.
 `,
 
     // 9. THE ENVIRONMENTALIST
@@ -411,25 +407,15 @@ Using Google Search, check:
 What external factors might be contributing to symptoms?
 *   *Specific Check:* Does report of "waxy/sticky hair" align with high water hardness in the region?
 
-**2. RELEVANT QUESTIONS:**
-- "**Which city are you living in?** (Need this for Water/Air check)"
-- "Do you have a water softener?"
-- "Do you see white scale on taps?"
+**2. ACTIONABLE INSIGHTS:**
+- **Hard Water:** Advice: "Install a shower filter, use chelating shampoo."
+- **Air Quality:** Advice: "Use an air purifier."
 
 **3. ENVIRONMENTAL IMPACT:**
 How might the environment be exacerbating symptoms?
 
----
-
-### EXAMPLE OUTPUT:
-"**Environmental Scan:** User reports 'waxy hair'. If location is [City], water hardness is likely [High/Very High].
-**Suspected Issue:** Calcium/Magnesium buildup on hair shaft (Hard Water).
-
-**Questions Needed:**
-- **Please confirm your city/location.**
-- Do you use a specific shampoo for hard water?
-
-**Environmental Impact:** Hard water prevents soap from lathering and leaves a 'scum' (calcium stearate) on skin/hair. This causes dryness, flaking, and the 'waxy' feeling. It also exacerbates eczema/psoriasis."
+**4. REFINEMENT (OPTIONAL):**
+Only ask ONE question if necessary.
 `
 };
 

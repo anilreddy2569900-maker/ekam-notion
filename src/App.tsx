@@ -9,7 +9,7 @@ import { ProfileSettings } from './components/ProfileSettings';
 import { MedicalRepository } from './components/MedicalRepository';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
-import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
+import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
 import { sendMessageToEkam, generateChatTitle, extractMemory, routeQuery } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
@@ -289,7 +289,7 @@ const App: React.FC = () => {
       setActiveAgents(selectedAgents);
 
       // CONDITIONAL ANIMATION START
-      if (mode === 'COMPLEX') {
+      if (mode === 'CRITICAL') {
         // Trigger Neural Sphere for complex reasoning
         setLoadingPhase('gathering');
       } else {
@@ -369,7 +369,7 @@ const App: React.FC = () => {
       // ----------------------------------------------------------------------
       // ANIMATION CONCLUSION
       // ----------------------------------------------------------------------
-      if (mode === 'COMPLEX') {
+      if (mode === 'CRITICAL') {
         // Move to synthesizing phase briefly before completion
         setLoadingPhase('synthesizing');
         await new Promise(resolve => setTimeout(resolve, 2000)); // Ensure animation is visible for at least 2s for "The Neural Wait" effect

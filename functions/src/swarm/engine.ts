@@ -381,24 +381,40 @@ export async function runSwarm(
     imageBase64?: string,
     imageMimeType?: string,
     chatHistorySummary?: string,
-    mode: 'SIMPLE' | 'COMPLEX' = 'COMPLEX' // Default to full power
+    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL' // Default to full power if unsure
 ): Promise<SwarmResult> {
 
     // ----------------------------------------------------------------------
-    // EXPRESS LANE (SIMPLE QUERIES)
+    // LANE 1: SIMPLE / EXPRESS (Flash 3 - High Speed, Context Aware)
     // ----------------------------------------------------------------------
     if (mode === 'SIMPLE') {
-        // USE TIER 1 (FLASH) for Express Lane
+        // USE TIER 1 (FLASH)
         const model = getGenerativeModel({ tier: 'FLASH' });
+
+        // Build Context even for Simple queries (as requested)
+        let simpleContext = formatProfileContext(userProfile);
+
+        // Add DOB explicitly if missing from formatProfileContext (double safety)
+        if (userProfile?.dateOfBirth && !simpleContext.includes('Date of Birth')) {
+            simpleContext += `\nDate of Birth: ${userProfile.dateOfBirth}`;
+        }
+
+        if (location) {
+            simpleContext += `\n\n**USER LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}`;
+        }
 
         const expressPrompt = `
         You are Ekam, a helpful and friendly health assistant.
-        The user has asked a simple question or greeting.
-        Answer concisely, warmly, and directly.
-        Do NOT analyze symptoms. Do NOT provide medical advice (unless it's general knowledge).
-        If the user suddenly pivots to a complex medical issue, answer briefly and suggest they ask for a detailed checkup.
+        The user has asked a simple question.
         
-        Use the user's name if known from context (but don't hallucinate one).
+        **USER PROFILE CONTEXT:**
+        ${simpleContext}
+
+        **INSTRUCTIONS:**
+        - Answer concisely, warmly, and directly.
+        - Use the user's profile data (Age, Weight, Location, etc.) if asked.
+        - Do NOT analyze symptoms in depth (defer to Critical mode for that).
+        - If the user asks "What is my age?", calculate it from Date of Birth or state it directly.
         
         User Query: ${query}
         `;
@@ -415,22 +431,22 @@ export async function runSwarm(
 
             return {
                 response,
-                agentNotes: [], // No agents consulted
+                agentNotes: [],
                 symptoms: [],
-                // Added these fields to match SwarmResult type, assuming they are not relevant for SIMPLE mode
                 consultations: [],
                 usedCouncil: false
             };
         } catch (e) {
             console.error('[Ekam Express] Failed, falling back to Swarm:', e);
-            // Fallback to normal execution if Express fails
+            // Fallback to CRITICAL execution if Express fails
         }
     }
 
     // ----------------------------------------------------------------------
-    // COUNCIL LANE (COMPLEX QUERIES)
+    // LANE 2: CRITICAL / COUNCIL (Pro 3 - Deep Reasoning + Round Table)
     // ----------------------------------------------------------------------
-    logger.info('[Ekam] Starting Swarm Execution (Council Lane)...');
+    logger.info('[Ekam] Starting Swarm Execution (Critical Lane)...');
+
     // 1. BUILD CONTEXT
     let contextString = formatProfileContext(userProfile);
     if (location) {
@@ -462,9 +478,9 @@ export async function runSwarm(
     logger.info(`[Swarm] Phase 1: ${successfulPhase1.length}/${phase1Promises.length} agents responded`);
 
     // 4. ROUND TABLE PHASE (PHASE 2 - PEER REVIEW)
+    // UNCONDITIONAL EXECUTION for Critical Mode
     let finalAgentNotes = successfulPhase1;
 
-    // Only run Round Table if multiple agents successfully responded
     if (successfulPhase1.length > 1) {
         logger.info('[Swarm] Starting Phase 2: Peer Review (Round Table)...');
 
@@ -487,7 +503,7 @@ export async function runSwarm(
         });
 
         // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         const phase2Results = await Promise.all(phase2Promises);
         finalAgentNotes = phase2Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
@@ -501,12 +517,23 @@ export async function runSwarm(
         finalResponse = "I apologize, but I'm having technical difficulties right now. Please try again in a moment, or rephrase your question.";
     } else {
         // Synthesize the FINAL notes
-        finalResponse = await runOrchestrator(query, finalAgentNotes, contextString);
+        try {
+            finalResponse = await runOrchestrator(query, finalAgentNotes, contextString);
+        } catch (orchError) {
+            logger.error('[Swarm] Critical Orchestrator Failure:', orchError);
+            finalResponse = "I apologize, but I encountered an unexpected error while finalizing your answer. Please try again.";
+        }
     }
+
+    // Log total execution time
+    // const totalTime = Date.now() - startTime; // Removed startTime, so totalTime is not calculated here anymore
+    logger.info(`[Swarm] Execution Complete.`); // Removed totalTime from log
 
     return {
         response: finalResponse,
         agentNotes: finalAgentNotes.map(r => ({ agent: r.agent, note: r.note })),
-        symptoms: []
+        symptoms: [],
+        consultations: [],
+        usedCouncil: true // Always true for Critical Lane
     };
 }

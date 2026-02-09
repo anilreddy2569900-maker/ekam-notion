@@ -76,5 +76,5 @@ export interface ProcessMessageRequest {
     userProfile?: UserProfile;
     chatHistorySummary?: string;
     location?: UserLocation;
-    mode?: 'SIMPLE' | 'COMPLEX';
+    mode?: 'SIMPLE' | 'CRITICAL';
 }

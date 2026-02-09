@@ -27,7 +27,7 @@ interface SwarmRequest {
     userProfile?: Record<string, unknown>;
     chatHistorySummary?: string;
     location?: { lat: number; lng: number };
-    mode?: 'SIMPLE' | 'COMPLEX';
+    mode?: 'SIMPLE' | 'CRITICAL';
 }
 
 interface SwarmResult {
@@ -55,7 +55,9 @@ function formatProfileForAPI(profile: Record<string, unknown>): Record<string, u
 
     // Basic Info
     if (profile.gender) formatted.gender = profile.gender;
-    if (profile.dateOfBirth) formatted.dateOfBirth = profile.dateOfBirth;
+    if (profile.gender) formatted.gender = profile.gender;
+    if (profile.dateOfBirth) formatted.dateOfBirth = profile.dateOfBirth; // Explicitly ensure DOB is passed
+    if (profile.age) formatted.age = profile.age; // Helper if age is pre-calculated
     if (profile.height) formatted.height = profile.height;
     if (profile.weight) formatted.weight = profile.weight;
 
@@ -83,7 +85,7 @@ export async function sendMessageToEkam(
     chatHistorySummary?: string,
     healthRecords?: { fileName: string; fileType: string; uploadedAt: unknown }[],
     location?: { lat: number; lng: number } | null,
-    mode: 'SIMPLE' | 'COMPLEX' = 'COMPLEX'
+    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL'
 ): Promise<EkamResponse> {
     try {
         // Build request payload
@@ -169,7 +171,7 @@ export async function healthCheck(): Promise<boolean> {
 // SEMANTIC ROUTER API
 // ============================================================================
 
-export type QueryComplexity = 'SIMPLE' | 'COMPLEX';
+export type QueryComplexity = 'SIMPLE' | 'CRITICAL';
 
 export interface RouterResult {
     type: QueryComplexity;
@@ -200,12 +202,12 @@ export async function routeQuery(text: string): Promise<QueryComplexity> {
     try {
         console.log('[Ekam Router] Classifying query...');
         const result = await classifyQueryFn({ text });
-        const classification = result.data.type || 'COMPLEX'; // Default to Complex for safety
+        const classification = result.data.type || 'CRITICAL'; // Default to Critical for safety
         console.log('[Ekam Router] Classification:', classification);
-        return classification;
+        return classification as QueryComplexity;
     } catch (error) {
-        console.warn('[Ekam Router] Classification failed (defaulting to COMPLEX):', error);
-        return 'COMPLEX';
+        console.warn('[Ekam Router] Classification failed (defaulting to CRITICAL):', error);
+        return 'CRITICAL';
     }
 }
 

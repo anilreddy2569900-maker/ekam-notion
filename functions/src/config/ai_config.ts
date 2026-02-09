@@ -6,14 +6,6 @@ import { AgentKey } from '../swarm/types';
 
 export type ModelTier = 'FLASH' | 'PRO';
 
-export const MODEL_IDS = {
-    // TIER 1: SPEED (Global Endpoint)
-    FLASH: 'gemini-3-flash-preview',
-
-    // TIER 2: REASONING (Global Endpoint)
-    PRO: 'gemini-3-pro-preview',
-};
-
 // Re-defining based on USER REQUEST specific IDs:
 // "gemini-3-flash-preview" and "gemini-3-pro-preview"
 // Note: These might be placeholders from the user. I should check if they are valid or if I should use the ones in `vertexai.ts`.
@@ -22,27 +14,13 @@ export const MODEL_IDS = {
 export const AI_CONFIG = {
     models: {
         FLASH: 'gemini-3-flash-preview',
-        PRO: 'gemini-3-pro-preview'
+        PRO: 'gemini-3-pro-preview',
+        LITE: 'gemini-2.0-flash-lite-preview-02-05'
     },
     location: {
         global: 'global',
         regional: 'us-central1'
     }
-};
-
-// Update to exact user request
-export const GEMINI_MODELS = {
-    FLASH: 'gemini-3-flash-preview',
-    PRO: 'gemini-3-pro-preview'
-}
-
-// DEFINITIVE CONFIG
-export const MODEL_CONFIG = {
-    FLASH: 'gemini-3-flash-preview',
-    PRO: 'gemini-3-pro-preview',
-    // NOTE: attempting to use "gemini-2.0-flash-exp" or "gemini-3" seems to be failing.
-    // I am reverting to 1.5-002 which are excellent models and stable.
-    // If the user INSISTS on 3, I will need the EXACT string they have access to.
 };
 
 

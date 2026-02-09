@@ -10,7 +10,7 @@ import * as logger from 'firebase-functions/logger';
 import { getGenerativeModel } from '../utils/vertexai';
 import { AgentKey } from './types';
 
-export type QueryComplexity = 'SIMPLE' | 'COMPLEX';
+export type QueryComplexity = 'SIMPLE' | 'CRITICAL';
 
 export interface RouterResult {
     type: QueryComplexity;
@@ -30,22 +30,22 @@ export async function classifyQuery(text: string): Promise<RouterResult> {
     - General knowledge ("What is protein?", "Benefits of water")
     - UI navigation ("Where is my profile?", "How do I upload?")
     - Compliments / Small talk
-    - Clarifications of previous simple answers
+    - **Personal Profile Questions** ("What is my age?", "What is my weight?", "My location?")
 
-    COMPLEX:
+    CRITICAL:
     - Symptoms ("My chest hurts", "I feel dizzy")
     - Medical history ("I have diabetes", "I had surgery")
     - Lab report interpretation
     - Personal health advice ("Diet for my condition")
     - Complex multi-part questions
 
-    Output JSON ONLY: { "type": "SIMPLE" } or { "type": "COMPLEX" }
+    Output JSON ONLY: { "type": "SIMPLE" } or { "type": "CRITICAL" }
     `;
 
-    // Use Tier 1 (Flash) for max speed and cost efficiency
+    // Use Tier LITE (Flash Lite 2.0) for max speed and cost efficiency
     const model: GenerativeModel = getGenerativeModel({
         systemInstruction,
-        tier: 'FLASH'
+        tier: 'LITE' as any // Cast to any as LITE is new
     });
 
     try {
@@ -60,8 +60,8 @@ export async function classifyQuery(text: string): Promise<RouterResult> {
 
         const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!responseText) {
-            // Default to COMPLEX for safety if classification fails
-            return { type: 'COMPLEX', reason: 'Empty response' };
+            // Default to CRITICAL for safety if classification fails
+            return { type: 'CRITICAL', reason: 'Empty response' };
         }
 
         const parsed = JSON.parse(responseText) as RouterResult;
@@ -69,8 +69,8 @@ export async function classifyQuery(text: string): Promise<RouterResult> {
 
     } catch (error) {
         logger.error('[Router] Classification failed:', error);
-        // Fail safe: assume complex to ensure full analysis
-        return { type: 'COMPLEX', reason: 'Error' };
+        // Fail safe: assume CRITICAL to ensure full analysis
+        return { type: 'CRITICAL', reason: 'Error' };
     }
 }
 

@@ -5,7 +5,7 @@
  * Uses low-latency models to extract clinical facts in parallel with main chat.
  */
 
-import { GenerativeModel } from '@google-cloud/vertexai';
+// import { GenerativeModel } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
 import { getGenerativeModel } from '../utils/vertexai';
 
@@ -44,10 +44,10 @@ export async function extractClinicalFacts(text: string): Promise<MemoryExtracti
     Output: { "facts": [{ "category": "Injury Status", "fact": "Knee pain resolved", "action": "update" }] }
     `;
 
-    // Use Tier 1 (Flash) for max speed and cost efficiency
-    const model: GenerativeModel = getGenerativeModel({
+    // Use Tier LITE (Flash Lite 2.0) for ultra-fast background extraction
+    const model = getGenerativeModel({
         systemInstruction,
-        tier: 'FLASH'
+        tier: 'LITE' as any // Cast to any as LITE is new
     });
 
     try {

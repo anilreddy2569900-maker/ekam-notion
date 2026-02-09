@@ -154,7 +154,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, loadingP
                                                 <blockquote className="border-l-4 border-accent-clay pl-4 py-1 my-4 bg-surface-charcoal/30 italic rounded-r text-text-muted-zinc" {...props} />
                                             ),
                                             code: ({ node, className, children, ...props }: any) => {
-                                                const match = /language-(\w+)/.exec(className || '')
                                                 return !className?.includes('language-') && !String(children).includes('\n') ? (
                                                     <code className="text-accent-clay bg-surface-charcoal/50 rounded px-1.5 py-0.5 font-mono text-[0.9em]" {...props}>
                                                         {children}

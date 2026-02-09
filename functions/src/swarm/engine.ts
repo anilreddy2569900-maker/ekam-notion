@@ -144,7 +144,12 @@ async function runAgent(
         model = getGroundedModel(systemInstruction);
     } else {
         // Use the Tiered Factory
-        model = getGenerativeModel({ systemInstruction, tier });
+        // For PRO tier (Gemini 3 Pro), enforce LOW THINKING as requested
+        model = getGenerativeModel({
+            systemInstruction,
+            tier,
+            thinkingLevel: tier === 'PRO' ? 'low' : undefined
+        });
     }
 
     const usedModelId = AI_CONFIG.models[tier];
@@ -278,7 +283,12 @@ async function runOrchestrator(
 
     // "Boss" uses Tier 2 (PRO) for "High Thinking" configuration
     const tier = AGENT_TIERS['orchestrator']; // Should be 'PRO'
-    const model: GenerativeModel = getGenerativeModel({ systemInstruction, tier });
+    // Enforce HIGH THINKING for the Orchestrator for deep synthesis (The "Boss" needs to think)
+    const model: GenerativeModel = getGenerativeModel({
+        systemInstruction,
+        tier,
+        thinkingLevel: 'high'
+    });
 
     // Format agent notes for orchestrator
     const notesFormatted = agentNotes

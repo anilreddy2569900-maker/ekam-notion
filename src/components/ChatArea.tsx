@@ -21,7 +21,7 @@ interface ChatAreaProps {
     loadingPhase?: 'gathering' | 'synthesizing' | 'done';
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, loadingPhase = 'done' }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAgents = [], loadingPhase = 'done' }) => {
     const endRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -178,7 +178,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, loadingP
             {/* Neural Wait Animation - "The Synapse" (Complex Mode) */}
             {isTyping && loadingPhase !== 'done' && (
                 <div className="w-full flex justify-center py-4">
-                    <ThinkingState />
+                    <ThinkingState activeAgents={activeAgents} />
                 </div>
             )}
 

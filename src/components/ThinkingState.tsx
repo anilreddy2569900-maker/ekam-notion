@@ -1,39 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const LOADING_PHRASES = [
-    "Consulting The Council...",
-    "Synthesizing biometrics...",
-    "Analyzing patterns...",
-    "Connecting to Neuro...",
-    "Reviewing protocols...",
-    "Formulating response..."
-];
 
-export const ThinkingState: React.FC<{ mode?: 'simple' | 'complex' }> = ({ mode = 'complex' }) => {
+
+// Agent display names
+const AGENT_NAMES: Record<string, string> = {
+    dermatologist: 'Dermatologist',
+    metabolic: 'Metabolic Furnace',
+    somatic: 'Somatic Engineer',
+    neuro: 'Neuro Architect',
+    guardian: 'Guardian',
+    vitalist: 'Vitalist',
+    endocrine: 'Endocrine Balancer',
+    environment: 'Environmentalist',
+};
+
+export const ThinkingState: React.FC<{ mode?: 'simple' | 'complex', activeAgents?: string[] }> = ({ mode = 'complex', activeAgents = [] }) => {
     const [phraseIndex, setPhraseIndex] = useState(0);
 
-    // SIMPLE MODE: Reduced Phrases, Faster Cycle (or static "Processing...")
-    const PHRASES = mode === 'complex' ? [
-        "Consulting The Council...",
-        "Synthesizing biometrics...",
-        "Analyzing patterns...",
-        "Connecting to Neuro...",
-        "Reviewing protocols...",
-        "Formulating response..."
-    ] : [
-        "Processing...",
-        "Retrieving...",
-        "Synthesizing..."
-    ];
+    // Dynamic Phrases based on Active Agents
+    const getPhrases = () => {
+        if (mode === 'simple') {
+            return ["Processing...", "Retrieving...", "Synthesizing..."];
+        }
 
-    // Cycle through phrases
+        const phrases = ["Consulting The Council..."];
+
+        // Add specific agent actions
+        if (activeAgents.length > 0) {
+            activeAgents.forEach(agent => {
+                const name = AGENT_NAMES[agent] || agent;
+                phrases.push(`${name} analyzing...`);
+                phrases.push(`${name} reviewing data...`);
+            });
+        } else {
+            // Fallback if no agents detected yet
+            phrases.push("Synthesizing biometrics...", "Analyzing patterns...", "Formulating response...");
+        }
+
+        phrases.push("Orchestrator synthesizing...");
+        return phrases;
+    };
+
+    const PHRASES = getPhrases();
+
+    // Cycle through phrases independently of render to avoid jitter, but update when PHRASES change
+    useEffect(() => {
+        setPhraseIndex(0); // Reset on new query
+    }, [activeAgents.length, mode]);
+
     useEffect(() => {
         const interval = setInterval(() => {
             setPhraseIndex((prev) => (prev + 1) % PHRASES.length);
-        }, mode === 'complex' ? 3000 : 800); // Faster text cycle for simple mode
+        }, 2000); // 2 seconds per agent for readability
         return () => clearInterval(interval);
-    }, [mode]);
+    }, [PHRASES.length]);
 
     // Orbiting nodes configuration
     const nodes = mode === 'complex' ? [0, 1, 2, 3] : [0, 1]; // Fewer nodes for simple mode

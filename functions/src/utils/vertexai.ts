@@ -52,6 +52,7 @@ export interface GenerativeModelOptions {
     tools?: any[];
     model?: string;     // Legacy/Specific model ID override
     tier?: ModelTier;   // Preferred way: 'FLASH' or 'PRO'
+    thinkingLevel?: 'low' | 'high'; // Gemini 3 Thinking Level
 }
 
 /**
@@ -68,11 +69,25 @@ export function getGenerativeModel(options: GenerativeModelOptions): GenerativeM
     // 3. Select Client
     const client = getModelClient(tier);
 
-    return client.getGenerativeModel({
+    // 4. Build Configuration
+    const modelConfig: any = {
         model: modelId,
         systemInstruction: options.systemInstruction,
         tools: options.tools,
-    });
+    };
+
+    // Apply Thinking Config if requested or if implied by PRO tier (Gemini 3 Pro)
+    // The user specifically requested "Low Thinking" for Gemini 3 Pro.
+    if (options.thinkingLevel || (tier === 'PRO' && modelId.includes('gemini-3'))) {
+        modelConfig.generationConfig = {
+            thinkingConfig: {
+                thinkingLevel: options.thinkingLevel || 'high', // Default to high unless 'low' specified
+                includeThoughts: true // Usually required when thinking is enabled
+            }
+        };
+    }
+
+    return client.getGenerativeModel(modelConfig);
 }
 
 /**

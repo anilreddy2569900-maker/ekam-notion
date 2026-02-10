@@ -7,6 +7,7 @@ import { InputArea } from './components/InputArea';
 import { Onboarding } from './components/Onboarding';
 import { ProfileSettings } from './components/ProfileSettings';
 import { MedicalRepository } from './components/MedicalRepository';
+import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
 import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
@@ -21,7 +22,7 @@ const App: React.FC = () => {
 
   // App State
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
-  const [view, setView] = useState<'chat' | 'settings' | 'vault'>('chat');
+  const [view, setView] = useState<'chat' | 'settings' | 'vault' | 'fitness'>('chat');
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -29,7 +30,7 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [loadingPhase, setLoadingPhase] = useState<'gathering' | 'synthesizing' | 'done'>('done');
-  const [chats, setChats] = useState<{ id: string, title: string }[]>([]);
+  const [chats, setChats] = useState<{ id: string, title: string, createdAt: any }[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
 
@@ -44,7 +45,7 @@ const App: React.FC = () => {
   const [chatHistorySummary, setChatHistorySummary] = useState<string>('');
 
   // Health Records State (Vault files metadata for agent access)
-  const [healthRecords, setHealthRecords] = useState<{ fileName: string; fileType: string; uploadedAt: any }[]>([]);
+  const [healthRecords, setHealthRecords] = useState<{ fileName: string; fileType: string; storagePath?: string; uploadedAt: any }[]>([]);
 
   // Location State
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
@@ -76,18 +77,16 @@ const App: React.FC = () => {
       const chatsQuery = query(chatsRef, orderBy('createdAt', 'desc'), limit(4));
       const chatsSnap = await getDocs(chatsQuery);
 
-      const summaries: string[] = [];
+      const targetDocs = chatsSnap.docs
+        .filter(doc => doc.id !== currentChatId)
+        .slice(0, 3);
 
-      for (const chatDoc of chatsSnap.docs) {
-        if (chatDoc.id === currentChatId) continue; // Skip current chat
-        if (summaries.length >= 3) break; // Limit to 3 past chats
-
-        // Get first 5 messages from each chat
+      const summaryPromises = targetDocs.map(async (chatDoc) => {
         const msgsRef = collection(db, 'users', user.uid, 'chats', chatDoc.id, 'messages');
         const msgsQuery = query(msgsRef, orderBy('createdAt', 'asc'), limit(5));
         const msgsSnap = await getDocs(msgsQuery);
 
-        if (msgsSnap.docs.length === 0) continue;
+        if (msgsSnap.empty) return null;
 
         const chatTitle = chatDoc.data().title || 'Untitled Chat';
         const msgsSummary = msgsSnap.docs.map((m: any) => {
@@ -95,8 +94,11 @@ const App: React.FC = () => {
           return `${data.role === 'user' ? 'User' : 'Ekam'}: ${data.content.substring(0, 100)}...`;
         }).join('\n');
 
-        summaries.push(`**Chat: ${chatTitle}**\n${msgsSummary}`);
-      }
+        return `**Chat: ${chatTitle}**\n${msgsSummary}`;
+      });
+
+      const results = await Promise.all(summaryPromises);
+      const summaries = results.filter((s): s is string => s !== null);
 
       setChatHistorySummary(summaries.join('\n\n'));
       console.log('[App] Loaded chat history summary for cross-chat memory');
@@ -143,11 +145,15 @@ const App: React.FC = () => {
     }
 
     const chatsRef = collection(db, 'users', user.uid, 'chats');
-    const q = query(chatsRef, orderBy('createdAt', 'desc'));
+    const q = query(chatsRef, orderBy('createdAt', 'desc'), limit(50));
 
     // Create a new chat if none exist
     const unsubscribe = onSnapshot(q, async (snapshot: { docs: any[] }) => {
-      const loadedChats = snapshot.docs.map((doc: { id: string; data: () => any }) => ({ id: doc.id, title: doc.data().title || 'New Chat' }));
+      const loadedChats = snapshot.docs.map((doc: { id: string; data: () => any }) => ({ 
+        id: doc.id, 
+        title: doc.data().title || 'New Chat',
+        createdAt: doc.data().createdAt
+      }));
       setChats(loadedChats);
 
       if (loadedChats.length === 0 && !currentChatId) {
@@ -185,6 +191,7 @@ const App: React.FC = () => {
       const records = snapshot.docs.map((doc: any) => ({
         fileName: doc.data().fileName,
         fileType: doc.data().fileType,
+        storagePath: doc.data().storagePath,
         uploadedAt: doc.data().uploadedAt
       }));
       setHealthRecords(records);
@@ -449,6 +456,7 @@ const App: React.FC = () => {
           <Sidebar
             isOpen={isSidebarOpen}
             onClose={() => setIsSidebarOpen(false)}
+            chats={chats}
             onNewChat={createNewChat}
             onSelectChat={(id) => {
               setCurrentChatId(id);
@@ -461,6 +469,10 @@ const App: React.FC = () => {
             }}
             onOpenVault={() => {
               setView('vault');
+              setIsSidebarOpen(false);
+            }}
+            onOpenFitness={() => {
+              setView('fitness');
               setIsSidebarOpen(false);
             }}
             onOpenGuide={() => setIsGuideOpen(true)}
@@ -494,6 +506,8 @@ const App: React.FC = () => {
               </>
             ) : view === 'settings' ? (
               <ProfileSettings onClose={() => setView('chat')} />
+            ) : view === 'fitness' ? (
+              <FitnessHub onClose={() => setView('chat')} />
             ) : (
               <MedicalRepository onClose={() => setView('chat')} />
             )}

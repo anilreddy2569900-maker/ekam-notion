@@ -130,7 +130,8 @@ async function runAgent(
     location?: UserLocation,
     imageBase64?: string,
     imageMimeType?: string,
-    peerContext?: string // New: Context from other agents for Phase 2
+    peerContext?: string, // New: Context from other agents for Phase 2
+    attachments?: { fileUri: string; mimeType: string }[] // New: Multimodal Files
 ): Promise<AgentResult> {
     const systemInstruction = AGENT_PROMPTS[agentKey];
 
@@ -206,7 +207,7 @@ Limit to 1 question MAX.
     // Build request content
     const parts: Part[] = [{ text: promptText }];
 
-    // Add image if provided
+    // Add image if provided (Legacy/Direct Image)
     if (imageBase64 && imageMimeType) {
         parts.push({
             inlineData: {
@@ -215,6 +216,21 @@ Limit to 1 question MAX.
             }
         });
         logger.info(`[Agent] Image attached for ${agentKey}`);
+    }
+
+    // Add Multimodal Attachments (Vault Files)
+    // Only Agents with "High Visual Aptitude" should arguably get them, but Gemini 3 is efficient.
+    // We give access to ALL selected agents.
+    if (attachments && attachments.length > 0) {
+        attachments.forEach(file => {
+            parts.push({
+                fileData: {
+                    fileUri: file.fileUri,
+                    mimeType: file.mimeType
+                }
+            });
+        });
+        logger.info(`[Agent] ${agentKey} received ${attachments.length} vault files.`);
     }
 
     try {
@@ -391,7 +407,8 @@ export async function runSwarm(
     imageBase64?: string,
     imageMimeType?: string,
     chatHistorySummary?: string,
-    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL' // Default to full power if unsure
+    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL', // Default to full power if unsure
+    attachments?: { fileUri: string; mimeType: string }[] // New schema
 ): Promise<SwarmResult> {
 
     // ----------------------------------------------------------------------
@@ -479,7 +496,9 @@ export async function runSwarm(
             contextString,
             location,
             agent !== 'environment' ? imageBase64 : undefined,
-            agent !== 'environment' ? imageMimeType : undefined
+            agent !== 'environment' ? imageMimeType : undefined,
+            undefined, // No peer context yet
+            attachments // Pass files
         )
     );
 
@@ -508,7 +527,8 @@ export async function runSwarm(
                 location,
                 currentAgentResult.agent !== 'environment' ? imageBase64 : undefined,
                 currentAgentResult.agent !== 'environment' ? imageMimeType : undefined,
-                peerContext // Pass the new context
+                peerContext, // Pass the new context
+                attachments // Pass files again for reference
             );
         });
 
@@ -536,8 +556,7 @@ export async function runSwarm(
     }
 
     // Log total execution time
-    // const totalTime = Date.now() - startTime; // Removed startTime, so totalTime is not calculated here anymore
-    logger.info(`[Swarm] Execution Complete.`); // Removed totalTime from log
+    logger.info(`[Swarm] Execution Complete.`);
 
     return {
         response: finalResponse,

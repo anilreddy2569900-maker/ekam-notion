@@ -13,7 +13,9 @@ import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 
 // Initialize Firebase Admin
-initializeApp();
+// Attachments Trigger
+import { onFileUpload } from './triggers/storage';
+export { onFileUpload };
 
 /**
  * Main callable function for processing user messages
@@ -72,6 +74,18 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 }
             }
 
+            const bucketName = 'project-health-de9dd.firebasestorage.app'; // Production Bucket
+
+            // Process Attachments (Map storagePath -> gs:// URI)
+            const attachments = request.data.attachments?.map(a => ({
+                fileUri: `gs://${bucketName}/${a.storagePath}`,
+                mimeType: a.mimeType
+            }));
+
+            if (attachments && attachments.length > 0) {
+                console.log(`[Ekam] Attached ${attachments.length} files for multimodal reading.`);
+            }
+
             // Run the Swarm Engine
             const result = await runSwarm(
                 message,
@@ -81,7 +95,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 imageBase64,
                 imageMimeType,
                 chatHistorySummary,
-                mode // Pass the mode!
+                mode, // Pass the mode!
+                attachments // Pass the files!
             );
 
             console.log('[Ekam] Response generated successfully');

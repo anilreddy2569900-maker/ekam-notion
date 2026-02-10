@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Settings, FileText, MessageSquare, Trash2, LogOut } from 'lucide-react';
+import { Plus, X, Settings, FileText, MessageSquare, Trash2, LogOut, Dumbbell } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, collection, query, orderBy, onSnapshot, deleteDoc, doc } from '../lib/firebase';
+import { db, deleteDoc, doc } from '../lib/firebase';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -11,31 +11,13 @@ interface SidebarProps {
     onSelectChat: (chatId: string) => void;
     onOpenSettings: () => void;
     onOpenVault: () => void;
+    onOpenFitness: () => void;
     onOpenGuide: () => void;
+    chats: { id: string, title: string, createdAt: any }[];
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, onSelectChat, onOpenSettings, onOpenVault, onOpenGuide }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, onSelectChat, onOpenSettings, onOpenVault, onOpenFitness, onOpenGuide, chats }) => {
     const { user, logout } = useAuth();
-    const [chats, setChats] = useState<{ id: string, text: string, timestamp: any }[]>([]);
-
-    useEffect(() => {
-        if (!user) return;
-
-        const q = query(
-            collection(db, 'users', user.uid, 'chats'),
-            orderBy('createdAt', 'desc')
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setChats(snapshot.docs.map(doc => ({
-                id: doc.id,
-                text: doc.data().title || 'New Chat',
-                timestamp: doc.data().createdAt
-            })));
-        });
-
-        return () => unsubscribe();
-    }, [user]);
 
     const handleDeleteChat = async (e: React.MouseEvent, chatId: string) => {
         e.stopPropagation();
@@ -105,6 +87,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
 
                             <button
                                 onClick={() => {
+                                    onOpenFitness();
+                                    onClose();
+                                }}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-all"
+                            >
+                                <Dumbbell size={18} className="opacity-70" />
+                                <span className="font-medium text-sm tracking-wide">Fitness</span>
+                            </button>
+
+                            <button
+                                onClick={() => {
                                     onOpenSettings();
                                     onClose();
                                 }}
@@ -142,7 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
                                     >
                                         <MessageSquare size={14} className="mt-1 flex-shrink-0 text-text-muted-zinc/40 group-hover:text-text-muted-zinc/70 transition-colors" />
                                         <div className="min-w-0">
-                                            <p className="text-sm text-text-muted-zinc group-hover:text-text-cream transition-colors line-clamp-1 font-light tracking-wide">{chat.text}</p>
+                                            <p className="text-sm text-text-muted-zinc group-hover:text-text-cream transition-colors line-clamp-1 font-light tracking-wide">{chat.title}</p>
                                         </div>
                                     </button>
                                     <button

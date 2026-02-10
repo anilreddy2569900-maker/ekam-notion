@@ -68,11 +68,18 @@ export interface SwarmResult {
     usedCouncil?: boolean;
 }
 
+// Attachment data for multimodal processing
+export interface SwarmAttachment {
+    storagePath: string;
+    mimeType: string;
+}
+
 // Request payload for processMessage
 export interface ProcessMessageRequest {
     message: string;
     history?: ChatMessage[];
     imageUrl?: string;
+    attachments?: SwarmAttachment[]; // New: List of files (PDFs, Images)
     userProfile?: UserProfile;
     chatHistorySummary?: string;
     location?: UserLocation;

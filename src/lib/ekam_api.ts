@@ -55,7 +55,6 @@ function formatProfileForAPI(profile: Record<string, unknown>): Record<string, u
 
     // Basic Info
     if (profile.gender) formatted.gender = profile.gender;
-    if (profile.gender) formatted.gender = profile.gender;
     if (profile.dateOfBirth) formatted.dateOfBirth = profile.dateOfBirth; // Explicitly ensure DOB is passed
     if (profile.age) formatted.age = profile.age; // Helper if age is pre-calculated
     if (profile.height) formatted.height = profile.height;
@@ -83,27 +82,42 @@ export async function sendMessageToEkam(
     imageUrl?: string,
     userProfile?: Record<string, unknown> | null,
     chatHistorySummary?: string,
-    healthRecords?: { fileName: string; fileType: string; uploadedAt: unknown }[],
+    healthRecords?: { fileName: string; fileType: string; storagePath?: string; uploadedAt: unknown }[],
     location?: { lat: number; lng: number } | null,
     mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL'
 ): Promise<EkamResponse> {
     try {
+        // Map health records to SwarmAttachments (Multimodal Input)
+        const attachments = healthRecords?.map(record => {
+            // "uploads/uid/timestamp_name.pdf" -> need to ensure we have the full path
+            // The frontend 'healthRecords' state currently has 'fileName' and 'fileType', but we need the 'storagePath'.
+            // I need to update App.tsx to pass storagePath, OR derive it.
+            // Let's assume passed in healthRecords for now, or use a heuristic if missing?
+            // Actually, App.tsx passes 'healthRecords' which comes from Firestore 'vault'.
+            // The Firestore doc HAS 'storagePath'. I need to make sure it's passed here.
+            return {
+                storagePath: (record as any).storagePath, // We will ensure App.tsx passes this
+                mimeType: record.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg' // Simplified inference, ideally pass real mime
+            };
+        }).filter(a => a.storagePath); // Filter out any missing paths
+
         // Build request payload
         const request: SwarmRequest = {
             message,
             history: history.length > 0 ? history : undefined,
             imageUrl: imageUrl || undefined,
+            attachments: attachments && attachments.length > 0 ? attachments : undefined,
             userProfile: userProfile ? formatProfileForAPI(userProfile) : undefined,
             chatHistorySummary: chatHistorySummary || undefined,
             location: location || undefined,
             mode
         };
 
-        // Add health records context to the message if available
+        // Add health records context text (listing filenames) for awareness
         if (healthRecords && healthRecords.length > 0) {
             const recordsInfo = healthRecords.map((r, i) => `${i + 1}. ${r.fileName} (${r.fileType})`).join('\n');
             request.chatHistorySummary = (request.chatHistorySummary || '') +
-                `\n\nUser's Uploaded Health Records:\n${recordsInfo}`;
+                `\n\n[SYSTEM] The user has the following medical files in their Vault. You have access to read them if relevant:\n${recordsInfo}`;
         }
 
         console.log('[Ekam API] Calling Cloud Function with message:', message.substring(0, 50));
@@ -185,20 +199,6 @@ const classifyQueryFn = httpsCallable<{ text: string }, RouterResult>(functions,
  * Returns 'SIMPLE' (Express Lane) or 'COMPLEX' (Council Lane).
  */
 export async function routeQuery(text: string): Promise<QueryComplexity> {
-    // 1. LOCAL HEURISTICS (Zero Latency)
-    // Check for obvious simple greetings/commands to save a cloud call
-    const lower = text.toLowerCase().trim();
-    const simplePatterns = [
-        /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)$/,
-        /^(ok|okay|thanks|thank you|cool|great|awesome|bye|goodbye)$/,
-        /^(who are you|what is this|help|menu|restart|reset)$/
-    ];
-
-    if (lower.length < 50 && simplePatterns.some(p => p.test(lower))) {
-        console.log('[Ekam Router] Local match: SIMPLE');
-        return 'SIMPLE';
-    }
-
     try {
         console.log('[Ekam Router] Classifying query...');
         const result = await classifyQueryFn({ text });

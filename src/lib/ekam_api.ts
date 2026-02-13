@@ -149,11 +149,46 @@ export async function sendMessageToEkam(
     } catch (error) {
         console.error('[Ekam API] Error calling Cloud Function:', error);
 
-        // Return a user-friendly error message
-        return {
-            text: 'I apologize, but I encountered an error processing your request. Please try again in a moment.',
-            usedCouncil: false,
-        };
+        // ------------------------------------------------------------------
+        // FAIL-SAFE FALLBACK: CLIENT-SIDE GEMINI (If Backend Fails)
+        // ------------------------------------------------------------------
+        try {
+            console.warn('[Ekam API] Attempting client-side fallback (Fail-Safe Mode)...');
+            const { GoogleGenerativeAI } = await import("@google/generative-ai");
+
+            // Use the API key from environment variables (client-side)
+            const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '');
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+            const prompt = `
+            You are Ekam, a helpful health assistant.
+            The user asked: "${message}"
+            
+            The advanced medical council is temporarily unreachable.
+            Please provide a helpful, safe, and concise answer to the user's question.
+            Do not mention technical errors. Just help them.
+            `;
+
+            const result = await model.generateContent(prompt);
+            const fallbackResponse = result.response.text();
+
+            console.log('[Ekam API] Fallback response generated successfully.');
+
+            return {
+                text: fallbackResponse,
+                usedCouncil: false,
+                agentNotes: [{ agent: 'system', note: 'Response generated via fail-safe mode due to high traffic.' }]
+            };
+
+        } catch (fallbackError) {
+            console.error('[Ekam API] Critical Fallback Failed:', fallbackError);
+
+            // Ultimate Fail-Safe
+            return {
+                text: "I'm currently experiencing very high traffic. Please try asking your question again in a moment.",
+                usedCouncil: false,
+            };
+        }
     }
 }
 

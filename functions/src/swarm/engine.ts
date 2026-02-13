@@ -7,7 +7,8 @@
 
 import { GenerativeModel, GenerateContentRequest, GenerateContentResult, Part } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel, getGroundedModel, getFallbackModel } from '../utils/vertexai';
+import { getGenerativeModel, getFallbackModel } from '../utils/vertexai';
+import { getCurrentWeather, formatWeatherForContext } from '../utils/weather';
 import { AGENT_TIERS, AI_CONFIG } from '../config/ai_config';
 import { AGENT_PROMPTS } from './agents';
 import { routeToAgents } from './router';
@@ -112,7 +113,13 @@ async function runAgent(
     let model: GenerativeModel;
 
     if (agentKey === 'environment') {
-        model = getGroundedModel(systemInstruction);
+        // model = getGroundedModel(systemInstruction); 
+        // SWITCH TO STANDARD MODEL (Weather injected via context now)
+        model = getGenerativeModel({
+            systemInstruction,
+            tier: 'FLASH', // Environment is always Flash
+            thinkingLevel: undefined
+        });
     } else {
         // Use the Tiered Factory
         // For PRO tier (Gemini 3 Pro), enforce LOW THINKING as requested
@@ -125,12 +132,24 @@ async function runAgent(
 
     const usedModelId = AI_CONFIG.models[tier];
 
+    // Pre-fetch Weather Data if applicable
+    let weatherContext = '';
+    if (agentKey === 'environment' && location) {
+        try {
+            const weatherData = await getCurrentWeather(`${location.lat},${location.lng}`);
+            weatherContext = formatWeatherForContext(weatherData);
+        } catch (e) {
+            logger.error('[Engine] Failed to fetch weather:', e);
+            weatherContext = "Weather data unavailable due to error.";
+        }
+    }
+
     // Build prompt text with enhanced deep thinking prompt
     const promptText = `
 **User Query:** ${userMessage}
 
 ${userContext || ''}
-${location && agentKey === 'environment' ? `**USER CURRENT LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}\n(Use Google Search to find real-time Air Quality, UV, and weather for THESE COORDINATES)` : ''}
+${location && agentKey === 'environment' ? `**USER CURRENT LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}\n\n${weatherContext}` : ''}
 
 ${peerContext ? `
 ---

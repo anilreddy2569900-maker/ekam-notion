@@ -51,6 +51,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 updatedAt: serverTimestamp(),
                 onboardingCompleted: true
             });
+
+            // Set local flag immediately to prevent onboarding loop on refresh
+            localStorage.setItem('ekam_onboarding_completed', 'true');
+
             // Small delay for UX
             setTimeout(() => {
                 onComplete();

@@ -74,7 +74,8 @@ const App: React.FC = () => {
   }, []);
 
   // Load summaries from recent chats for cross-chat memory
-  const loadChatHistory = async () => {
+  // Wrapped in useCallback to ensure it updates when currentChatId changes
+  const loadChatHistory = React.useCallback(async () => {
     if (!user) return;
     try {
       // Get last 3 chats (excluding current)
@@ -110,7 +111,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Error loading chat history:', error);
     }
-  };
+  }, [user, currentChatId]);
 
   // Check for Health Data (Real-time Listener)
   useEffect(() => {
@@ -127,14 +128,29 @@ const App: React.FC = () => {
       if (docSnap.exists()) {
         setHasProfile(true);
         setUserProfile(docSnap.data()); // Store full profile for AI context
+        // Ensure local flag is set if we have a profile
+        localStorage.setItem('ekam_onboarding_completed', 'true');
         console.log('[App] User profile updated:', docSnap.data());
       } else {
-        setHasProfile(false);
-        setUserProfile(null);
+        // Double check local storage to prevent loop
+        const localCompleted = localStorage.getItem('ekam_onboarding_completed') === 'true';
+        if (localCompleted) {
+          console.warn('[App] Profile missing in Firestore but exists locally. Waiting for sync...');
+          // Keep it null (loading) instead of false (onboarding) to give Firestore time to sync
+          setHasProfile(null);
+        } else {
+          setHasProfile(false);
+          setUserProfile(null);
+        }
       }
     }, (error) => {
       console.error("Error listening to profile:", error);
-      setHasProfile(false); // Fallback
+      // If error, trust local storage to avoid blocking user
+      if (localStorage.getItem('ekam_onboarding_completed') === 'true') {
+        setHasProfile(true);
+      } else {
+        setHasProfile(false);
+      }
     });
 
     return () => unsubscribe();
@@ -178,12 +194,12 @@ const App: React.FC = () => {
     }
   }, [user, chats, loading]);
 
-  // Load cross-chat memory on startup
+  // Load cross-chat memory on startup and when chat changes
   useEffect(() => {
     if (user && chats.length > 0) {
       loadChatHistory();
     }
-  }, [user, chats]);
+  }, [user, chats, loadChatHistory]);
 
   // Load health records (vault files) metadata for agent access
   useEffect(() => {

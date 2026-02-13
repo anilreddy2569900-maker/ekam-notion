@@ -30,6 +30,7 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
         memory: '1GiB',
         timeoutSeconds: 120,
         maxInstances: 100,
+        minInstances: 1,
     },
     async (request) => {
         // Verify authentication (optional but recommended)

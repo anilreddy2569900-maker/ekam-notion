@@ -19,44 +19,7 @@ import {
     UserLocation
 } from './types';
 
-// WeatherAPI Configuration
-// TODO: Move this to Firebase Secrets or Environment Variables for production security
-const WEATHER_API_KEY = '5fd051d625454ade86985011260702';
-const WEATHER_API_BASE = 'http://api.weatherapi.com/v1/current.json';
-
-/**
- * Fetch real-time weather data
- */
-async function fetchCurrentWeather(lat: number, lng: number): Promise<string> {
-    try {
-        logger.info(`[Engine] Fetching weather for ${lat},${lng}...`);
-        const url = `${WEATHER_API_BASE}?key=${WEATHER_API_KEY}&q=${lat},${lng}&aqi=yes`;
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            logger.warn(`[Engine] Weather API error: ${response.status} ${response.statusText}`);
-            return '';
-        }
-
-        const data = await response.json();
-        const current = data.current;
-        const location = data.location;
-
-        return `
-**REAL-TIME WEATHER DATA (${location.name}, ${location.region}):**
-- Temperature: ${current.temp_c}°C (${current.temp_f}°F)
-- Condition: ${current.condition.text}
-- Humidity: ${current.humidity}%
-- UV Index: ${current.uv}
-- Wind: ${current.wind_kph} kph (${current.wind_dir})
-- Air Quality (US - EPA Index): ${current.air_quality ? current.air_quality['us-epa-index'] : 'N/A'}
-- Last Updated: ${current.last_updated}
-`;
-    } catch (error) {
-        logger.error('[Engine] Failed to fetch weather:', error);
-        return '';
-    }
-}
+// Weather data is now handled by Google Search grounding in the environment agent
 
 /**
  * Format user profile into a context string for agents
@@ -155,18 +118,12 @@ async function runAgent(
 
     const usedModelId = AI_CONFIG.models[tier];
 
-    // New: Fetch specific weather details if Environment Agent
-    let weatherContext = '';
-    if (agentKey === 'environment' && location) {
-        weatherContext = await fetchCurrentWeather(location.lat, location.lng);
-    }
-
     // Build prompt text with enhanced deep thinking prompt
     const promptText = `
 **User Query:** ${userMessage}
 
 ${userContext || ''}
-${location && agentKey === 'environment' ? `**USER CURRENT LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}\n${weatherContext || '(Use Google Search to find real-time Air Quality, UV, and weather for THESE COORDINATES)'}` : ''}
+${location && agentKey === 'environment' ? `**USER CURRENT LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}\n(Use Google Search to find real-time Air Quality, UV, and weather for THESE COORDINATES)` : ''}
 
 ${peerContext ? `
 ---
@@ -234,10 +191,6 @@ Limit to 1 question MAX.
     }
 
     try {
-        // Add random jitter delay to prevent thundering herd on quota
-        const jitter = Math.floor(Math.random() * 500);
-        await new Promise(resolve => setTimeout(resolve, jitter));
-
         logger.info(`[Agent] Trying ${agentKey} with Tier ${tier} (${usedModelId})...`);
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts }],
@@ -297,13 +250,10 @@ async function runOrchestrator(
 ): Promise<string> {
     const systemInstruction = AGENT_PROMPTS['orchestrator'];
 
-    // "Boss" uses Tier 2 (PRO) for "High Thinking" configuration
-    const tier = AGENT_TIERS['orchestrator']; // Should be 'PRO'
-    // Enforce HIGH THINKING for the Orchestrator for deep synthesis (The "Boss" needs to think)
+    // Orchestrator uses FLASH for speed — synthesis doesn't need deep reasoning
     const model: GenerativeModel = getGenerativeModel({
         systemInstruction,
-        tier,
-        thinkingLevel: 'high'
+        tier: 'FLASH',
     });
 
     // Format agent notes for orchestrator
@@ -352,7 +302,7 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
 `;
 
     try {
-        logger.info(`[Orchestrator] Trying with Tier ${tier}...`);
+        logger.info(`[Orchestrator] Trying with FLASH tier...`);
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts: [{ text: promptText }] }],
             generationConfig: {
@@ -506,39 +456,8 @@ export async function runSwarm(
     const successfulPhase1 = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
     logger.info(`[Swarm] Phase 1: ${successfulPhase1.length}/${phase1Promises.length} agents responded`);
 
-    // 4. ROUND TABLE PHASE (PHASE 2 - PEER REVIEW)
-    // UNCONDITIONAL EXECUTION for Critical Mode
-    let finalAgentNotes = successfulPhase1;
-
-    if (successfulPhase1.length > 1) {
-        logger.info('[Swarm] Starting Phase 2: Peer Review (Round Table)...');
-
-        // Construct peer context for each agent (showing others' notes)
-        const phase2Promises = successfulPhase1.map(currentAgentResult => {
-            // Get all OTHER agents' notes
-            const peers = successfulPhase1.filter(r => r.agent !== currentAgentResult.agent);
-            // Create a summary context (truncate to avoid huge tokens)
-            const peerContext = peers.map(p => `**${p.agent.toUpperCase()}:** ${p.note.substring(0, 800)}...`).join('\n\n');
-
-            return runAgent(
-                currentAgentResult.agent,
-                query,
-                contextString,
-                location,
-                currentAgentResult.agent !== 'environment' ? imageBase64 : undefined,
-                currentAgentResult.agent !== 'environment' ? imageMimeType : undefined,
-                peerContext, // Pass the new context
-                attachments // Pass files again for reference
-            );
-        });
-
-        // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const phase2Results = await Promise.all(phase2Promises);
-        finalAgentNotes = phase2Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
-        logger.info('[Swarm] Phase 2 Complete.');
-    }
+    // Phase 1 results go directly to Orchestrator (Round Table removed for speed)
+    const finalAgentNotes = successfulPhase1;
 
     // 5. ORCHESTRATOR SYNTHESIZES
     let finalResponse: string;

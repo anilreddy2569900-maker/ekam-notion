@@ -270,8 +270,8 @@ const App: React.FC = () => {
         imageUrl = await uploadImageToFirebase(file);
       }
 
-      // Add user message to Firestore
-      await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+      // Add user message to Firestore (fire-and-forget — don't block API call)
+      const userMsgPromise = addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
         role: 'user',
         content: text,
         imageUrl: imageUrl || null,

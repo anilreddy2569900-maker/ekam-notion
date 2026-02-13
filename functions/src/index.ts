@@ -13,6 +13,7 @@ import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 
 // Initialize Firebase Admin
+initializeApp();
 // Attachments Trigger
 import { onFileUpload } from './triggers/storage';
 export { onFileUpload };

@@ -7,14 +7,14 @@ import { getFunctions } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDBRF5SCiUFHNxzimhfLdkxYCkgOzZTbIo",
-    authDomain: "project-health-de9dd.firebaseapp.com",
-    databaseURL: "https://project-health-de9dd-default-rtdb.firebaseio.com",
-    projectId: "project-health-de9dd",
-    storageBucket: "project-health-de9dd.firebasestorage.app",
-    messagingSenderId: "128197273200",
-    appId: "1:128197273200:web:0cc4f0a4a2ea82b21776b5",
-    measurementId: "G-L3E28DSV6B"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);
@@ -33,3 +33,4 @@ export { collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc, getDocs
 
 // Re-export Storage functions for use in components
 export { ref, uploadBytes, getDownloadURL, deleteObject, listAll };
+

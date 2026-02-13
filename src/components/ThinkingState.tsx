@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-
-
 // Agent display names
 const AGENT_NAMES: Record<string, string> = {
     dermatologist: 'Dermatologist',
@@ -18,145 +16,138 @@ const AGENT_NAMES: Record<string, string> = {
 export const ThinkingState: React.FC<{ mode?: 'simple' | 'complex', activeAgents?: string[] }> = ({ mode = 'complex', activeAgents = [] }) => {
     const [phraseIndex, setPhraseIndex] = useState(0);
 
-    // Dynamic Phrases based on Active Agents
     const getPhrases = () => {
         if (mode === 'simple') {
-            return ["Processing...", "Retrieving...", "Synthesizing..."];
+            return ["Thinking...", "Processing..."];
         }
-
         const phrases = ["Consulting The Council..."];
-
-        // Add specific agent actions
         if (activeAgents.length > 0) {
             activeAgents.forEach(agent => {
                 const name = AGENT_NAMES[agent] || agent;
                 phrases.push(`${name} analyzing...`);
-                phrases.push(`${name} reviewing data...`);
             });
         } else {
-            // Fallback if no agents detected yet
-            phrases.push("Synthesizing biometrics...", "Analyzing patterns...", "Formulating response...");
+            phrases.push("Analyzing patterns...", "Synthesizing insights...");
         }
-
-        phrases.push("Orchestrator synthesizing...");
+        phrases.push("Orchestrating response...");
         return phrases;
     };
 
     const PHRASES = getPhrases();
 
-    // Cycle through phrases independently of render to avoid jitter, but update when PHRASES change
     useEffect(() => {
-        setPhraseIndex(0); // Reset on new query
+        setPhraseIndex(0);
     }, [activeAgents.length, mode]);
 
     useEffect(() => {
         const interval = setInterval(() => {
             setPhraseIndex((prev) => (prev + 1) % PHRASES.length);
-        }, 2000); // 2 seconds per agent for readability
+        }, 2800);
         return () => clearInterval(interval);
     }, [PHRASES.length]);
 
-    // Orbiting nodes configuration
-    const nodes = mode === 'complex' ? [0, 1, 2, 3] : [0, 1]; // Fewer nodes for simple mode
+    const isSimple = mode === 'simple';
+    const containerSize = isSimple ? 'w-20 h-20' : 'w-36 h-36';
+    const coreSize = isSimple ? 'w-3 h-3' : 'w-4 h-4';
+
+    // Ripple ring configs — staggered delays for organic feel
+    const ripples = isSimple ? [0] : [0, 1, 2];
 
     return (
-        <div className={`flex flex-col items-center justify-center p-8 w-full max-w-md mx-auto ${mode === 'simple' ? 'my-1 py-4 scale-75' : 'my-4'}`}>
-            {/* THE SYNAPSE ANIMATION CONTAINER */}
-            <div className={`relative flex items-center justify-center ${mode === 'simple' ? 'w-24 h-24 mb-4' : 'w-48 h-48 mb-8'}`}>
+        <div className={`flex flex-col items-center justify-center w-full max-w-md mx-auto ${isSimple ? 'py-3' : 'py-6'}`}>
 
-                {/* 1. CENTRAL CORE (The User's Query) */}
+            {/* THE BREATHING LIGHT */}
+            <div className={`relative flex items-center justify-center ${containerSize} ${isSimple ? 'mb-3' : 'mb-6'}`}>
+
+                {/* Ambient Haze — Soft gaussian background glow */}
                 <motion.div
+                    className="absolute inset-0 rounded-full"
                     animate={{
-                        scale: [1, 1.2, 1],
-                        opacity: [0.6, 1, 0.6],
-                        boxShadow: [
-                            "0 0 20px rgba(217, 119, 87, 0.2)",
-                            "0 0 40px rgba(217, 119, 87, 0.6)",
-                            "0 0 20px rgba(217, 119, 87, 0.2)"
-                        ]
+                        opacity: [0.15, 0.35, 0.15],
+                        scale: [0.9, 1.1, 0.9],
                     }}
                     transition={{
-                        duration: mode === 'simple' ? 1.5 : 3, // Faster pulse
+                        duration: isSimple ? 2 : 4,
                         repeat: Infinity,
-                        ease: "easeInOut"
+                        ease: "easeInOut",
                     }}
-                    className={`rounded-full bg-accent-clay/90 relative z-10 backdrop-blur-sm ${mode === 'simple' ? 'w-8 h-8' : 'w-12 h-12'}`}
-                >
-                    {/* Inner Core Brightness */}
-                    <div className="absolute inset-2 rounded-full bg-white/20 blur-sm" />
-                </motion.div>
+                    style={{
+                        background: 'radial-gradient(circle, rgba(217,119,87,0.25) 0%, rgba(217,119,87,0.08) 40%, transparent 70%)',
+                        filter: 'blur(20px)',
+                    }}
+                />
 
-                {/* 2. ORBITING NODES (The Agents) */}
-                {nodes.map((i) => (
-                    <motion.div
+                {/* Concentric Ripple Rings */}
+                {ripples.map((i) => (
+                    <div
                         key={i}
-                        className="absolute w-full h-full"
-                        animate={{ rotate: 360 }}
-                        transition={{
-                            duration: mode === 'simple' ? 2 : 8 + i * 2, // Much faster orbits
-                            repeat: Infinity,
-                            ease: "linear",
-                            delay: i * 0.2
-                        }}
-                    >
-                        {/* The Node Itself - Offset from center */}
-                        <motion.div
-                            className="absolute top-0 left-1/2 -ml-1.5 rounded-full bg-accent-clay"
-                            animate={{
-                                scale: [1, 1.5, 1],
-                                opacity: [0.4, 0.9, 0.4],
-                            }}
-                            transition={{
-                                duration: mode === 'simple' ? 1 : 2,
-                                repeat: Infinity,
-                                ease: "easeInOut",
-                                delay: i * 0.1
-                            }}
-                            style={{
-                                width: mode === 'simple' ? '8px' : '12px',
-                                height: mode === 'simple' ? '8px' : '12px',
-                                boxShadow: "0 0 15px rgba(217, 119, 87, 0.4)"
-                            }}
-                        />
-                    </motion.div>
-                ))}
-
-                {/* 3. CONNECTION BEAMS (Data Transfer) - Complex Mode Only */}
-                {mode === 'complex' && nodes.map((i) => (
-                    <motion.div
-                        key={`beam-${i}`}
-                        className="absolute w-1 h-24 origin-bottom bg-gradient-to-t from-transparent via-accent-clay/50 to-transparent"
-                        style={{ bottom: "50%", left: "50%", marginLeft: "-0.5px" }}
-                        animate={{
-                            rotate: [0, 360],
-                            opacity: [0, 0.8, 0],
-                            height: ["0%", "50%", "0%"]
-                        }}
-                        transition={{
-                            rotate: { duration: 10 + i * 2, repeat: Infinity, ease: "linear" },
-                            opacity: { duration: 2, repeat: Infinity, ease: "easeInOut", delay: i * 0.7 },
-                            height: { duration: 2, repeat: Infinity, ease: "easeInOut", delay: i * 0.7 }
+                        className="absolute inset-0 rounded-full border border-accent-clay/30"
+                        style={{
+                            animation: `ripple-expand ${isSimple ? 2.2 : 3.5}s ease-out infinite`,
+                            animationDelay: `${i * 0.9}s`,
                         }}
                     />
                 ))}
 
-                {/* 4. Background Glow/Ambience */}
-                <div className="absolute inset-0 bg-accent-clay/5 blur-3xl rounded-full" />
+                {/* Primary Breathing Ring */}
+                <motion.div
+                    className="absolute rounded-full border border-accent-clay/40"
+                    animate={{
+                        scale: [0.85, 1, 0.85],
+                        opacity: [0.3, 0.6, 0.3],
+                        borderColor: [
+                            'rgba(217,119,87,0.2)',
+                            'rgba(217,119,87,0.5)',
+                            'rgba(217,119,87,0.2)',
+                        ],
+                    }}
+                    transition={{
+                        duration: isSimple ? 1.8 : 3.5,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                    }}
+                    style={{
+                        width: '65%',
+                        height: '65%',
+                    }}
+                />
+
+                {/* Core — The luminous center point */}
+                <motion.div
+                    className={`${coreSize} rounded-full bg-accent-clay relative z-10`}
+                    animate={{
+                        scale: [1, 1.3, 1],
+                        opacity: [0.7, 1, 0.7],
+                        boxShadow: [
+                            '0 0 12px rgba(217,119,87,0.3), 0 0 24px rgba(217,119,87,0.1)',
+                            '0 0 20px rgba(217,119,87,0.6), 0 0 40px rgba(217,119,87,0.2)',
+                            '0 0 12px rgba(217,119,87,0.3), 0 0 24px rgba(217,119,87,0.1)',
+                        ],
+                    }}
+                    transition={{
+                        duration: isSimple ? 1.8 : 3.5,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                    }}
+                >
+                    <div className="absolute inset-0.5 rounded-full bg-white/25 blur-[1px]" />
+                </motion.div>
             </div>
 
-            {/* 5. STATUS TEXT (Only if actually loading, though express is fast) */}
-            <div className="h-6 overflow-hidden relative w-full text-center">
+            {/* Status Text — Smooth vertical slide */}
+            <div className="h-5 overflow-hidden relative w-full text-center">
                 <AnimatePresence mode="wait">
-                    <motion.div
+                    <motion.p
                         key={phraseIndex}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.3 }}
-                        className={`absolute w-full font-serif text-text-muted-zinc tracking-wide italic ${mode === 'simple' ? 'text-sm' : 'text-lg'}`}
+                        initial={{ opacity: 0, y: 8, filter: 'blur(4px)' }}
+                        animate={{ opacity: 0.6, y: 0, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
+                        transition={{ duration: 0.4, ease: 'easeOut' }}
+                        className={`absolute w-full tracking-widest uppercase text-text-muted-zinc/70 ${isSimple ? 'text-[10px]' : 'text-[11px]'}`}
+                        style={{ fontFamily: "'Inter', sans-serif", fontWeight: 300, letterSpacing: '0.2em' }}
                     >
                         {PHRASES[phraseIndex]}
-                    </motion.div>
+                    </motion.p>
                 </AnimatePresence>
             </div>
         </div>

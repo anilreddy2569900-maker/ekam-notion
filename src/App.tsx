@@ -11,7 +11,7 @@ import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
 import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
-import { sendMessageToEkam, generateChatTitle, extractMemory, routeQuery } from './lib/ekam_api';
+import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
 
@@ -149,8 +149,8 @@ const App: React.FC = () => {
 
     // Create a new chat if none exist
     const unsubscribe = onSnapshot(q, async (snapshot: { docs: any[] }) => {
-      const loadedChats = snapshot.docs.map((doc: { id: string; data: () => any }) => ({ 
-        id: doc.id, 
+      const loadedChats = snapshot.docs.map((doc: { id: string; data: () => any }) => ({
+        id: doc.id,
         title: doc.data().title || 'New Chat',
         createdAt: doc.data().createdAt
       }));
@@ -243,7 +243,7 @@ const App: React.FC = () => {
 
   const uploadImageToFirebase = async (file: File): Promise<string> => {
     if (!user) throw new Error("User not authenticated");
-    const storageRef = ref(storage, `users/${user.uid}/uploads/${Date.now()}_${file.name}`);
+    const storageRef = ref(storage, `uploads/${user.uid}/${Date.now()}_${file.name}`);
     await uploadBytes(storageRef, file);
     return await getDownloadURL(storageRef);
   };
@@ -287,67 +287,63 @@ const App: React.FC = () => {
       // ----------------------------------------------------------------------
       // SEMANTIC ROUTER (GATEKEEPER)
       // ----------------------------------------------------------------------
-      // Determine if this is a SIMPLE or COMPLEX query
-      const mode = await routeQuery(text);
+      // Determine if this is a SIMPLE or COMPLEX query (instant, no network call)
+      const mode = classifyLocally(text);
       console.log(`[App] Query routed to: ${mode} mode`);
 
-      // Determine Agents (only relevant for COMPLEX mode really, but good for tracking)
-      const selectedAgents = routeToAgents(text);
-      setActiveAgents(selectedAgents);
-
-      // CONDITIONAL ANIMATION START
+      // Determine Agents — only for CRITICAL mode (skip agent routing for simple greetings)
       if (mode === 'CRITICAL') {
-        // Trigger Neural Sphere for complex reasoning
+        const selectedAgents = routeToAgents(text);
+        setActiveAgents(selectedAgents);
         setLoadingPhase('gathering');
-      } else {
-        // For Express Lane (Simple), we will just let the "Typing..." state handle it
-        // But we need to ensure ThinkingBubble handles 'gathering' vs 'express'
-        // We'll set a special phase or handled by loadingPhase being 'done' but isTyping=true?
-        // Actually, ThinkingState only shows if loadingPhase is 'gathering' or 'synthesizing'.
-        // So if we DON'T set gathering, it won't show. Perf!
-        // Standard ChatArea "isTyping" is active, so it will show dots if we have a component for it.
-        // Current ChatArea implies it might not have standard dots if ThinkingState replaced it? 
-        // Let's check ChatArea next. For now, assume isTyping=true is enough for simple UI.
       }
 
       // ----------------------------------------------------------------------
       // FLASH MEMORY (OBSERVER LAYER) - High-speed parallel execution
       // ----------------------------------------------------------------------
-      extractMemory(text).then(async (facts) => {
-        if (facts && facts.length > 0) {
-          console.log('[App] Flash Memory captured:', facts);
-          const updates: Record<string, any> = {};
+      // Only extract clinical memory for CRITICAL queries (skip for greetings/small talk)
+      if (mode === 'CRITICAL') {
+        extractMemory(text).then(async (facts) => {
+          if (facts && facts.length > 0) {
+            console.log('[App] Flash Memory captured:', facts);
+            const updates: Record<string, any> = {};
 
-          facts.forEach(f => {
-            // Create a readable key for the fact
-            // Simple fallback key gen, ideally we use what the LLM gave if it was a key-value pair,
-            // but here we are receiving {category, fact}.
-            // Let's store it dynamically as "Category: Fact".
-            const storageKey = f.category;
-            if (f.action === 'add' || f.action === 'update') {
-              updates[storageKey] = f.fact;
-            } else if (f.action === 'remove') {
-              updates[storageKey] = deleteField(); // Special handling needed for delete field
-            }
-          });
+            facts.forEach(f => {
+              const storageKey = f.category;
+              if (f.action === 'add' || f.action === 'update') {
+                updates[storageKey] = f.fact;
+              } else if (f.action === 'remove') {
+                updates[storageKey] = deleteField();
+              }
+            });
 
-          if (Object.keys(updates).length > 0) {
-            // 1. Optimistic UI Update
-            setUserProfile(prev => ({ ...prev, ...updates }));
+            if (Object.keys(updates).length > 0) {
+              // 1. Optimistic UI Update
+              setUserProfile(prev => ({ ...prev, ...updates }));
 
-            // 2. Database Update (Fire & Forget)
-            try {
-              const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-              await updateDoc(profileRef, updates); // Note: deleteDoc() in updateDoc works for fields? No, needs deleteField()
-            } catch (e) {
-              console.error('[App] Flash Memory save failed:', e);
+              // 2. Database Update (Fire & Forget)
+              try {
+                const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+                await updateDoc(profileRef, updates);
+              } catch (e) {
+                console.error('[App] Flash Memory save failed:', e);
+              }
             }
           }
-        }
-      });
+        });
+      }
 
-      // Send to Ekam Swarm Engine (Cloud Functions) - Main Thread
-      const ekamResponsePromise = sendMessageToEkam(text, historyForApi, imageUrl, userProfile, chatHistorySummary, healthRecords, location, mode);
+      // Send to Ekam Swarm Engine — SIMPLE mode skips heavy payload
+      const ekamResponsePromise = sendMessageToEkam(
+        text,
+        historyForApi,
+        imageUrl,
+        userProfile,
+        mode === 'CRITICAL' ? chatHistorySummary : undefined,   // Skip summary for SIMPLE
+        mode === 'CRITICAL' ? healthRecords : undefined,         // Skip records for SIMPLE
+        location,
+        mode
+      );
 
       // Wait for main response (don't technically need to wait for memory, but good for cleanup)
       const ekamResponse = await ekamResponsePromise;
@@ -377,9 +373,8 @@ const App: React.FC = () => {
       // ANIMATION CONCLUSION
       // ----------------------------------------------------------------------
       if (mode === 'CRITICAL') {
-        // Move to synthesizing phase briefly before completion
         setLoadingPhase('synthesizing');
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Ensure animation is visible for at least 2s for "The Neural Wait" effect
+        await new Promise(resolve => setTimeout(resolve, 800)); // Brief visual transition
       }
 
       // Reset loading state

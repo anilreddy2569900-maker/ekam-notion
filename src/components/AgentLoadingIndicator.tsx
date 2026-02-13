@@ -29,10 +29,11 @@ export const AgentLoadingIndicator: React.FC<AgentLoadingIndicatorProps> = ({ ac
             exit={{ opacity: 0, y: -10 }}
             className="flex gap-4 max-w-[95%] sm:max-w-[85%]"
         >
+            {/* Avatar */}
             <div className="w-8 h-8 shrink-0 rounded-full bg-surface-charcoal border border-surface-charcoal flex items-center justify-center mt-1">
                 <motion.span
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
                     className="font-serif text-xs text-accent-clay"
                 >
                     <Brain size={14} />
@@ -42,21 +43,24 @@ export const AgentLoadingIndicator: React.FC<AgentLoadingIndicatorProps> = ({ ac
             <div className="bg-surface-charcoal/30 border border-white/5 rounded-2xl p-4 min-w-[200px]">
                 {/* Phase Label */}
                 <motion.div
-                    className="flex items-center gap-2 mb-3"
+                    className="flex items-center gap-2.5 mb-3"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                 >
                     <motion.div
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                        className="w-2 h-2 rounded-full bg-accent-clay"
+                        animate={{
+                            scale: [1, 1.4, 1],
+                            opacity: [0.4, 1, 0.4],
+                        }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        className="w-1.5 h-1.5 rounded-full bg-accent-clay"
                     />
-                    <span className="text-sm text-text-muted-zinc">
-                        {phase === 'gathering' ? 'Consulting specialists...' : 'Synthesizing insights...'}
+                    <span className="text-xs text-text-muted-zinc/70 tracking-widest uppercase" style={{ fontWeight: 300 }}>
+                        {phase === 'gathering' ? 'Consulting specialists' : 'Synthesizing insights'}
                     </span>
                 </motion.div>
 
-                {/* Agent Icons Grid */}
+                {/* Agent Pills — Staggered entrance with shimmer */}
                 <div className="flex flex-wrap gap-2">
                     {activeAgents.map((agent, i) => {
                         const info = AGENT_INFO[agent] || { name: agent, icon: Brain, color: 'text-gray-400' };
@@ -67,35 +71,22 @@ export const AgentLoadingIndicator: React.FC<AgentLoadingIndicatorProps> = ({ ac
                                 key={agent}
                                 initial={{ scale: 0, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
-                                transition={{ delay: i * 0.1, type: "spring", stiffness: 300 }}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-surface-charcoal/50 rounded-full border border-white/5"
+                                transition={{
+                                    delay: i * 0.12,
+                                    type: "spring",
+                                    stiffness: 200,
+                                    damping: 20,
+                                }}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-surface-charcoal/50 rounded-full border border-white/5 animate-shimmer"
                             >
                                 <motion.div
-                                    animate={{
-                                        opacity: [0.5, 1, 0.5],
-                                    }}
-                                    transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
+                                    animate={{ opacity: [0.5, 1, 0.5] }}
+                                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
                                     className={info.color}
                                 >
-                                    <Icon size={14} />
+                                    <Icon size={13} />
                                 </motion.div>
-                                <span className="text-xs text-text-cream/70">{info.name}</span>
-
-                                {/* Thinking dots */}
-                                <div className="flex gap-0.5 ml-1">
-                                    {[0, 1, 2].map((dot) => (
-                                        <motion.div
-                                            key={dot}
-                                            animate={{ opacity: [0.3, 1, 0.3] }}
-                                            transition={{
-                                                duration: 0.8,
-                                                repeat: Infinity,
-                                                delay: dot * 0.15 + i * 0.1
-                                            }}
-                                            className={`w-1 h-1 rounded-full ${info.color.replace('text-', 'bg-')}`}
-                                        />
-                                    ))}
-                                </div>
+                                <span className="text-xs text-text-cream/60" style={{ fontWeight: 300 }}>{info.name}</span>
                             </motion.div>
                         );
                     })}
@@ -106,16 +97,19 @@ export const AgentLoadingIndicator: React.FC<AgentLoadingIndicatorProps> = ({ ac
                     <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
+                        transition={{ duration: 0.4, ease: 'easeOut' }}
                         className="mt-3 pt-3 border-t border-white/5"
                     >
-                        <div className="flex items-center gap-2 text-accent-clay">
+                        <div className="flex items-center gap-2 text-accent-clay/70">
                             <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                                animate={{ opacity: [0.3, 0.8, 0.3] }}
+                                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
                             >
-                                <Sparkles size={14} />
+                                <Sparkles size={12} />
                             </motion.div>
-                            <span className="text-sm">Preparing unified response...</span>
+                            <span className="text-[11px] tracking-wider uppercase" style={{ fontWeight: 300 }}>
+                                Preparing unified response
+                            </span>
                         </div>
                     </motion.div>
                 )}

@@ -12,6 +12,14 @@ import { functions } from './firebase';
 // TYPES
 // ============================================================================
 
+
+export interface HealthRecord {
+    fileName: string;
+    fileType: string;
+    storagePath?: string;
+    uploadedAt: unknown;
+}
+
 export interface EkamResponse {
     text: string;
     agentNotes?: { agent: string; note: string }[];
@@ -28,6 +36,7 @@ interface SwarmRequest {
     chatHistorySummary?: string;
     location?: { lat: number; lng: number };
     mode?: 'SIMPLE' | 'CRITICAL';
+    attachments?: { storagePath?: string; mimeType: string }[];
 }
 
 interface SwarmResult {
@@ -82,24 +91,18 @@ export async function sendMessageToEkam(
     imageUrl?: string,
     userProfile?: Record<string, unknown> | null,
     chatHistorySummary?: string,
-    healthRecords?: { fileName: string; fileType: string; storagePath?: string; uploadedAt: unknown }[],
+    healthRecords?: HealthRecord[],
     location?: { lat: number; lng: number } | null,
     mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL'
 ): Promise<EkamResponse> {
     try {
         // Map health records to SwarmAttachments (Multimodal Input)
         const attachments = healthRecords?.map(record => {
-            // "uploads/uid/timestamp_name.pdf" -> need to ensure we have the full path
-            // The frontend 'healthRecords' state currently has 'fileName' and 'fileType', but we need the 'storagePath'.
-            // I need to update App.tsx to pass storagePath, OR derive it.
-            // Let's assume passed in healthRecords for now, or use a heuristic if missing?
-            // Actually, App.tsx passes 'healthRecords' which comes from Firestore 'vault'.
-            // The Firestore doc HAS 'storagePath'. I need to make sure it's passed here.
             return {
-                storagePath: (record as any).storagePath, // We will ensure App.tsx passes this
-                mimeType: record.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg' // Simplified inference, ideally pass real mime
+                storagePath: record.storagePath,
+                mimeType: record.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
             };
-        }).filter(a => a.storagePath); // Filter out any missing paths
+        }).filter(a => a.storagePath);
 
         // Build request payload
         const request: SwarmRequest = {
@@ -192,21 +195,87 @@ export interface RouterResult {
     reason?: string;
 }
 
+// Patterns that indicate a SIMPLE query (instant classification, no network call)
+const SIMPLE_PATTERNS = [
+    /^(hi|hey|hello|hola|namaste|yo|sup|hii+|heyy+)\b/i,
+    /^(thanks|thank you|thx|ty|ok|okay|cool|great|nice|got it|understood|sure)\b/i,
+    /^(good morning|good evening|good night|good afternoon|gm|gn)\b/i,
+    /^(bye|goodbye|see you|later|cya)\b/i,
+    /^(who are you|what are you|what can you do|how do you work)\b/i,
+    /^(what is my (age|weight|height|name|profile|location|bmi))\b/i,
+    /^(how old am i|my age|my weight|my height|my bmi)\b/i,
+    /^(where (is|are) my (profile|settings|vault|records))\b/i,
+    /^(how do i (upload|use|navigate|change|update))\b/i,
+];
+
+// Patterns that indicate a CRITICAL query (needs full council)
+const CRITICAL_PATTERNS = [
+    /(hurt|pain|ache|sore|burning|sting|throb|cramp)/i,
+    /(symptom|diagnos|condition|disease|disorder|syndrome|infection)/i,
+    /(blood|pressure|sugar|cholesterol|glucose|thyroid|hormone)/i,
+    /(rash|itch|swelling|lump|bump|lesion|wound)/i,
+    /(dizzy|nausea|vomit|faint|breathless|palpitat)/i,
+    /(anxiety|depress|insomnia|fatigue|exhausted)/i,
+    /(diet for|exercise for|treatment|medication|supplement|dosage)/i,
+    /(lab report|test result|blood test|scan|x-ray|mri)/i,
+    /(pregnant|period|cycle|fertility|pcos)/i,
+    /(cancer|tumor|surgery|operation|emergency)/i,
+    /(allerg|asthma|diabetes|hypertension|cardiac)/i,
+];
+
+/**
+ * Instant client-side query classification (zero latency).
+ * Uses regex heuristics to classify SIMPLE vs CRITICAL queries.
+ * Defaults to CRITICAL for ambiguous queries (safe fallback).
+ */
+export function classifyLocally(text: string): QueryComplexity {
+    const trimmed = text.trim();
+
+    // Very short messages (1-3 words, no medical keywords) are almost always simple
+    const wordCount = trimmed.split(/\s+/).length;
+    if (wordCount <= 3) {
+        // Check if any critical pattern matches even in short text
+        const hasCritical = CRITICAL_PATTERNS.some(p => p.test(trimmed));
+        if (!hasCritical) {
+            console.log('[Ekam Router] Local classification: SIMPLE (short message)');
+            return 'SIMPLE';
+        }
+    }
+
+    // Check explicit SIMPLE patterns
+    const isSimple = SIMPLE_PATTERNS.some(p => p.test(trimmed));
+    if (isSimple) {
+        console.log('[Ekam Router] Local classification: SIMPLE (pattern match)');
+        return 'SIMPLE';
+    }
+
+    // Check explicit CRITICAL patterns
+    const isCritical = CRITICAL_PATTERNS.some(p => p.test(trimmed));
+    if (isCritical) {
+        console.log('[Ekam Router] Local classification: CRITICAL (pattern match)');
+        return 'CRITICAL';
+    }
+
+    // Default to CRITICAL for safety (anything ambiguous gets full analysis)
+    console.log('[Ekam Router] Local classification: CRITICAL (default/ambiguous)');
+    return 'CRITICAL';
+}
+
 const classifyQueryFn = httpsCallable<{ text: string }, RouterResult>(functions, 'classifyQueryCallable');
 
 /**
- * Classify the user query complexity to determine the processing lane.
- * Returns 'SIMPLE' (Express Lane) or 'COMPLEX' (Council Lane).
+ * Server-side query classification (kept as fallback, no longer called by default).
+ * Returns 'SIMPLE' (Express Lane) or 'CRITICAL' (Council Lane).
  */
 export async function routeQuery(text: string): Promise<QueryComplexity> {
     try {
-        console.log('[Ekam Router] Classifying query...');
+        console.log('[Ekam Router] Classifying query (server)...');
         const result = await classifyQueryFn({ text });
-        const classification = result.data.type || 'CRITICAL'; // Default to Critical for safety
-        console.log('[Ekam Router] Classification:', classification);
+        const classification = result.data.type || 'CRITICAL';
+        console.log('[Ekam Router] Server classification:', classification);
         return classification as QueryComplexity;
     } catch (error) {
-        console.warn('[Ekam Router] Classification failed (defaulting to CRITICAL):', error);
+        console.warn('[Ekam Router] Server classification failed (defaulting to CRITICAL):', error);
         return 'CRITICAL';
     }
 }

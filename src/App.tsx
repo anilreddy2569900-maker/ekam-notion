@@ -270,8 +270,8 @@ const App: React.FC = () => {
         imageUrl = await uploadImageToFirebase(file);
       }
 
-      // Add user message to Firestore (fire-and-forget — don't block API call)
-      const userMsgPromise = addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+      // Add user message to Firestore — must await to ensure message appears before continuing
+      await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
         role: 'user',
         content: text,
         imageUrl: imageUrl || null,
@@ -411,8 +411,22 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error sending message:", error);
+      // Show error to user in chat
+      try {
+        if (activeChatId && user) {
+          await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+            role: 'ai',
+            content: "I'm sorry, I encountered a temporary issue. Please try sending your message again.",
+            createdAt: serverTimestamp()
+          });
+        }
+      } catch (e) {
+        console.error("Failed to write error message:", e);
+      }
     } finally {
       setIsTyping(false);
+      setLoadingPhase('done');
+      setActiveAgents([]);
     }
   };
 

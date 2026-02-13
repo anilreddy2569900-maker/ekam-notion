@@ -25,20 +25,18 @@ export const AI_CONFIG = {
 
 
 export const AGENT_TIERS: Record<AgentKey, ModelTier> = {
-    // TIER 1: SPEED (FLASH) — Analysis & note generation
+    // TIER 1: SPEED (FLASH) — Lightweight agents
     environment: 'FLASH',
     dermatologist: 'FLASH',
-    metabolic: 'FLASH',
-    somatic: 'FLASH',
-    neuro: 'FLASH',
-    vitalist: 'FLASH',
-    endocrine: 'FLASH',
 
-    // TIER 2: REASONING (PRO) — Safety-critical only
+    // TIER 2: REASONING (PRO) — Deep analysis agents
+    orchestrator: 'PRO',
+    vitalist: 'PRO',
+    neuro: 'PRO',
     guardian: 'PRO',
-
-    // Orchestrator uses FLASH directly in engine.ts (not referenced from here)
-    orchestrator: 'FLASH',
+    metabolic: 'PRO',
+    somatic: 'PRO',
+    endocrine: 'PRO',
 };
 
 // Override specific agents to FLASH if they are "Lightweight"

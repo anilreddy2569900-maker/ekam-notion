@@ -250,10 +250,12 @@ async function runOrchestrator(
 ): Promise<string> {
     const systemInstruction = AGENT_PROMPTS['orchestrator'];
 
-    // Orchestrator uses FLASH for speed — synthesis doesn't need deep reasoning
+    // Orchestrator uses PRO + High Thinking for maximum synthesis quality
+    const tier = AGENT_TIERS['orchestrator'];
     const model: GenerativeModel = getGenerativeModel({
         systemInstruction,
-        tier: 'FLASH',
+        tier,
+        thinkingLevel: 'high'
     });
 
     // Format agent notes for orchestrator
@@ -302,7 +304,7 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
 `;
 
     try {
-        logger.info(`[Orchestrator] Trying with FLASH tier...`);
+        logger.info(`[Orchestrator] Trying with Tier ${tier} (PRO + High Thinking)...`);
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts: [{ text: promptText }] }],
             generationConfig: {
@@ -456,8 +458,33 @@ export async function runSwarm(
     const successfulPhase1 = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
     logger.info(`[Swarm] Phase 1: ${successfulPhase1.length}/${phase1Promises.length} agents responded`);
 
-    // Phase 1 results go directly to Orchestrator (Round Table removed for speed)
-    const finalAgentNotes = successfulPhase1;
+    // 4. ROUND TABLE PHASE (PHASE 2 - PEER REVIEW)
+    let finalAgentNotes = successfulPhase1;
+
+    if (successfulPhase1.length > 1) {
+        logger.info('[Swarm] Starting Phase 2: Peer Review (Round Table)...');
+
+        // Construct peer context for each agent (showing others' notes)
+        const phase2Promises = successfulPhase1.map(currentAgentResult => {
+            const peers = successfulPhase1.filter(r => r.agent !== currentAgentResult.agent);
+            const peerContext = peers.map(p => `**${p.agent.toUpperCase()}:** ${p.note.substring(0, 800)}...`).join('\n\n');
+
+            return runAgent(
+                currentAgentResult.agent,
+                query,
+                contextString,
+                location,
+                currentAgentResult.agent !== 'environment' ? imageBase64 : undefined,
+                currentAgentResult.agent !== 'environment' ? imageMimeType : undefined,
+                peerContext,
+                attachments
+            );
+        });
+
+        const phase2Results = await Promise.all(phase2Promises);
+        finalAgentNotes = phase2Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
+        logger.info('[Swarm] Phase 2 Complete.');
+    }
 
     // 5. ORCHESTRATOR SYNTHESIZES
     let finalResponse: string;

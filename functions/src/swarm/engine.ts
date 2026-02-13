@@ -19,6 +19,13 @@ import {
     UserLocation
 } from './types';
 
+// Progress callback type for live thinking stream
+export type ProgressCallback = (update: {
+    phase: 'routing' | 'brainstorming' | 'peer_review' | 'synthesizing';
+    agents?: Record<string, { status: 'thinking' | 'done'; snippet?: string }>;
+    selectedAgents?: string[];
+}) => Promise<void>;
+
 // Weather data is now handled by Google Search grounding in the environment agent
 
 /**
@@ -359,9 +366,16 @@ export async function runSwarm(
     imageBase64?: string,
     imageMimeType?: string,
     chatHistorySummary?: string,
-    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL', // Default to full power if unsure
-    attachments?: { fileUri: string; mimeType: string }[] // New schema
+    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL',
+    attachments?: { fileUri: string; mimeType: string }[],
+    onProgress?: ProgressCallback
 ): Promise<SwarmResult> {
+
+    // Safe progress helper — never let progress writes break the main flow
+    const reportProgress = async (update: Parameters<ProgressCallback>[0]) => {
+        if (!onProgress) return;
+        try { await onProgress(update); } catch (e) { logger.warn('[Swarm] Progress write failed:', e); }
+    };
 
     // ----------------------------------------------------------------------
     // LANE 1: SIMPLE / EXPRESS (Flash 3 - High Speed, Context Aware)
@@ -439,20 +453,34 @@ export async function runSwarm(
     const selectedAgents = routeToAgents(query);
     logger.info(`[Swarm] Selected agents: ${selectedAgents.join(', ')}`);
 
+    // Report routing progress
+    const agentProgress: Record<string, { status: 'thinking' | 'done'; snippet?: string }> = {};
+    selectedAgents.forEach(a => { agentProgress[a] = { status: 'thinking' }; });
+    await reportProgress({ phase: 'routing', selectedAgents, agents: { ...agentProgress } });
+
     // 3. RUN AGENTS IN PARALLEL (PHASE 1 - BRAINSTORM)
     logger.info('[Swarm] Starting Phase 1: Brainstorming...');
-    const phase1Promises = selectedAgents.map(agent =>
-        runAgent(
+    await reportProgress({ phase: 'brainstorming', selectedAgents, agents: { ...agentProgress } });
+
+    const phase1Promises = selectedAgents.map(agent => {
+        const promise = runAgent(
             agent,
             query,
             contextString,
             location,
             agent !== 'environment' ? imageBase64 : undefined,
             agent !== 'environment' ? imageMimeType : undefined,
-            undefined, // No peer context yet
-            attachments // Pass files
-        )
-    );
+            undefined,
+            attachments
+        );
+        // Track individual agent completion for live progress
+        promise.then(result => {
+            const snippet = result.note.substring(0, 120).replace(/\n/g, ' ').trim();
+            agentProgress[agent] = { status: 'done', snippet: snippet + '...' };
+            reportProgress({ phase: 'brainstorming', selectedAgents, agents: { ...agentProgress } });
+        }).catch(() => { });
+        return promise;
+    });
 
     const phase1Results = await Promise.all(phase1Promises);
     const successfulPhase1 = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
@@ -463,13 +491,15 @@ export async function runSwarm(
 
     if (successfulPhase1.length > 1) {
         logger.info('[Swarm] Starting Phase 2: Peer Review (Round Table)...');
+        // Reset agent progress for Phase 2
+        selectedAgents.forEach(a => { agentProgress[a] = { status: 'thinking' }; });
+        await reportProgress({ phase: 'peer_review', selectedAgents, agents: { ...agentProgress } });
 
-        // Construct peer context for each agent (showing others' notes)
         const phase2Promises = successfulPhase1.map(currentAgentResult => {
             const peers = successfulPhase1.filter(r => r.agent !== currentAgentResult.agent);
             const peerContext = peers.map(p => `**${p.agent.toUpperCase()}:** ${p.note.substring(0, 800)}...`).join('\n\n');
 
-            return runAgent(
+            const promise = runAgent(
                 currentAgentResult.agent,
                 query,
                 contextString,
@@ -479,6 +509,13 @@ export async function runSwarm(
                 peerContext,
                 attachments
             );
+            // Track individual completion
+            promise.then(result => {
+                const snippet = result.note.substring(0, 120).replace(/\n/g, ' ').trim();
+                agentProgress[currentAgentResult.agent] = { status: 'done', snippet: snippet + '...' };
+                reportProgress({ phase: 'peer_review', selectedAgents, agents: { ...agentProgress } });
+            }).catch(() => { });
+            return promise;
         });
 
         const phase2Results = await Promise.all(phase2Promises);
@@ -494,6 +531,7 @@ export async function runSwarm(
     } else {
         // Synthesize the FINAL notes
         try {
+            await reportProgress({ phase: 'synthesizing', selectedAgents, agents: { ...agentProgress } });
             finalResponse = await runOrchestrator(query, finalAgentNotes, contextString);
         } catch (orchError) {
             logger.error('[Swarm] Critical Orchestrator Failure:', orchError);

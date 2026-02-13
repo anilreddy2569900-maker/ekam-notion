@@ -37,6 +37,8 @@ interface SwarmRequest {
     location?: { lat: number; lng: number };
     mode?: 'SIMPLE' | 'CRITICAL';
     attachments?: { storagePath?: string; mimeType: string }[];
+    userId?: string;
+    chatId?: string;
 }
 
 interface SwarmResult {
@@ -93,7 +95,9 @@ export async function sendMessageToEkam(
     chatHistorySummary?: string,
     healthRecords?: HealthRecord[],
     location?: { lat: number; lng: number } | null,
-    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL'
+    mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL',
+    userId?: string,
+    chatId?: string
 ): Promise<EkamResponse> {
     try {
         // Map health records to SwarmAttachments (Multimodal Input)
@@ -113,7 +117,9 @@ export async function sendMessageToEkam(
             userProfile: userProfile ? formatProfileForAPI(userProfile) : undefined,
             chatHistorySummary: chatHistorySummary || undefined,
             location: location || undefined,
-            mode
+            mode,
+            userId: userId || undefined,
+            chatId: chatId || undefined
         };
 
         // Add health records context text (listing filenames) for awareness

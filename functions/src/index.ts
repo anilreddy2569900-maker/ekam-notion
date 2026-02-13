@@ -7,13 +7,15 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { runSwarm } from './swarm/engine';
 import { extractClinicalFacts, MemoryExtractionResult } from './swarm/memory';
 import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 
 // Initialize Firebase Admin
-initializeApp();
+const app = initializeApp();
+const db = getFirestore(app);
 // Attachments Trigger
 import { onFileUpload } from './triggers/storage';
 export { onFileUpload };
@@ -46,7 +48,9 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
             userProfile,
             chatHistorySummary,
             location,
-            mode
+            mode,
+            userId,
+            chatId
         } = request.data;
 
         // Validate input
@@ -88,6 +92,31 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 console.log(`[Ekam] Attached ${attachments.length} files for multimodal reading.`);
             }
 
+            // Set up live thinking progress if we have userId and chatId
+            let thinkingDocRef: FirebaseFirestore.DocumentReference | null = null;
+            let onProgress = undefined;
+
+            const resolvedUserId = userId || request.auth?.uid;
+            if (resolvedUserId && chatId && mode !== 'SIMPLE') {
+                thinkingDocRef = db.doc(`users/${resolvedUserId}/chats/${chatId}/thinking/current`);
+                // Initialize thinking doc
+                await thinkingDocRef.set({
+                    phase: 'routing',
+                    agents: {},
+                    selectedAgents: [],
+                    updatedAt: FieldValue.serverTimestamp()
+                });
+
+                onProgress = async (update: any) => {
+                    if (thinkingDocRef) {
+                        await thinkingDocRef.set({
+                            ...update,
+                            updatedAt: FieldValue.serverTimestamp()
+                        }, { merge: true });
+                    }
+                };
+            }
+
             // Run the Swarm Engine
             const result = await runSwarm(
                 message,
@@ -97,9 +126,15 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 imageBase64,
                 imageMimeType,
                 chatHistorySummary,
-                mode, // Pass the mode!
-                attachments // Pass the files!
+                mode,
+                attachments,
+                onProgress
             );
+
+            // Clean up thinking doc
+            if (thinkingDocRef) {
+                try { await thinkingDocRef.delete(); } catch (e) { /* ignore cleanup errors */ }
+            }
 
             console.log('[Ekam] Response generated successfully');
             console.log('[Ekam] Agents consulted:', result.agentNotes.length);

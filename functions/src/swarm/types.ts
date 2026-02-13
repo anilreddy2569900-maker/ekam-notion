@@ -79,9 +79,11 @@ export interface ProcessMessageRequest {
     message: string;
     history?: ChatMessage[];
     imageUrl?: string;
-    attachments?: SwarmAttachment[]; // New: List of files (PDFs, Images)
+    attachments?: SwarmAttachment[];
     userProfile?: UserProfile;
     chatHistorySummary?: string;
     location?: UserLocation;
     mode?: 'SIMPLE' | 'CRITICAL';
+    userId?: string;
+    chatId?: string;
 }

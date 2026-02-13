@@ -30,6 +30,11 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [loadingPhase, setLoadingPhase] = useState<'gathering' | 'synthesizing' | 'done'>('done');
+  const [thinkingProgress, setThinkingProgress] = useState<{
+    phase: string;
+    agents?: Record<string, { status: 'thinking' | 'done'; snippet?: string }>;
+    selectedAgents?: string[];
+  } | null>(null);
   const [chats, setChats] = useState<{ id: string, title: string, createdAt: any }[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
@@ -292,10 +297,25 @@ const App: React.FC = () => {
       console.log(`[App] Query routed to: ${mode} mode`);
 
       // Determine Agents — only for CRITICAL mode (skip agent routing for simple greetings)
+      let unsubThinking: (() => void) | null = null;
+
       if (mode === 'CRITICAL') {
         const selectedAgents = routeToAgents(text);
         setActiveAgents(selectedAgents);
         setLoadingPhase('gathering');
+
+        // Set up live thinking listener
+        const thinkingDocRef = doc(db, 'users', user.uid, 'chats', activeChatId, 'thinking', 'current');
+        unsubThinking = onSnapshot(thinkingDocRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            setThinkingProgress({
+              phase: data.phase,
+              agents: data.agents,
+              selectedAgents: data.selectedAgents
+            });
+          }
+        });
       }
 
       // ----------------------------------------------------------------------
@@ -339,14 +359,22 @@ const App: React.FC = () => {
         historyForApi,
         imageUrl,
         userProfile,
-        mode === 'CRITICAL' ? chatHistorySummary : undefined,   // Skip summary for SIMPLE
-        mode === 'CRITICAL' ? healthRecords : undefined,         // Skip records for SIMPLE
+        mode === 'CRITICAL' ? chatHistorySummary : undefined,
+        mode === 'CRITICAL' ? healthRecords : undefined,
         location,
-        mode
+        mode,
+        user.uid,
+        activeChatId
       );
 
-      // Wait for main response (don't technically need to wait for memory, but good for cleanup)
+      // Wait for main response
       const ekamResponse = await ekamResponsePromise;
+
+      // Clean up thinking listener
+      if (unsubThinking) {
+        unsubThinking();
+        setThinkingProgress(null);
+      }
 
       // CHECK FOR PROFILE UPDATES
       // Format: ||PROFILE_UPDATE: {"skinType": "Oily", "conditions": "Acne detected"}||
@@ -506,6 +534,7 @@ const App: React.FC = () => {
                     isTyping={isTyping}
                     activeAgents={activeAgents}
                     loadingPhase={loadingPhase}
+                    thinkingProgress={thinkingProgress}
                   />
                   <InputArea
                     onSend={handleSend}

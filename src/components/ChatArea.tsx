@@ -14,14 +14,21 @@ export interface Message {
     agentNotes?: { agent: string; note: string }[];
 }
 
+export interface ThinkingProgressData {
+    phase: string;
+    agents?: Record<string, { status: 'thinking' | 'done'; snippet?: string }>;
+    selectedAgents?: string[];
+}
+
 interface ChatAreaProps {
     messages: Message[];
     isTyping?: boolean;
     activeAgents?: string[];
     loadingPhase?: 'gathering' | 'synthesizing' | 'done';
+    thinkingProgress?: ThinkingProgressData | null;
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAgents = [], loadingPhase = 'done' }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAgents = [], loadingPhase = 'done', thinkingProgress }) => {
     const endRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -178,7 +185,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
             {/* Neural Wait Animation - "The Synapse" (Complex Mode) */}
             {isTyping && loadingPhase !== 'done' && (
                 <div className="w-full flex justify-center py-4">
-                    <ThinkingState activeAgents={activeAgents} />
+                    <ThinkingState activeAgents={activeAgents} thinkingProgress={thinkingProgress} />
                 </div>
             )}
 

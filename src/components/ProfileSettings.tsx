@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { db, doc, setDoc, getDoc, onSnapshot, serverTimestamp } from '../lib/firebase';
+import { db, doc, setDoc, onSnapshot, serverTimestamp } from '../lib/firebase';
 import { ArrowLeft, Save, Check, HelpCircle, Plus, X } from 'lucide-react';
 import { HelpModal } from './HelpModal';
 
@@ -101,7 +101,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
             <div className="max-w-3xl mx-auto w-full p-6 pb-24 space-y-8">
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-8">
-                    <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-text-muted-zinc transition-colors">
+                    <button onClick={onClose} className="p-2 hover:bg-text-cream/5 rounded-full text-text-muted-zinc transition-colors">
                         <ArrowLeft size={24} />
                     </button>
                     <h1
@@ -127,7 +127,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                     <button
                                         key={opt}
                                         onClick={() => updateData('gender', opt)}
-                                        className={`px-4 py-2 rounded-lg border text-sm transition-all ${formData.gender === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-white/10 hover:bg-white/5 text-text-muted-zinc'}`}
+                                        className={`px-4 py-2 rounded-lg border text-sm transition-all ${formData.gender === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-text-cream/10 hover:bg-text-cream/5 text-text-muted-zinc'}`}
                                     >
                                         {opt}
                                     </button>
@@ -140,7 +140,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                 type="date"
                                 value={formData.dob}
                                 onChange={e => updateData('dob', e.target.value)}
-                                className="w-full bg-surface-charcoal border border-white/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
                             />
                         </div>
                         <div>
@@ -149,7 +149,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                 type="number"
                                 value={formData.height}
                                 onChange={e => updateData('height', e.target.value)}
-                                className="w-full bg-surface-charcoal border border-white/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
                             />
                         </div>
                         <div>
@@ -158,7 +158,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                 type="number"
                                 value={formData.weight}
                                 onChange={e => updateData('weight', e.target.value)}
-                                className="w-full bg-surface-charcoal border border-white/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
                             />
                         </div>
                     </div>
@@ -178,7 +178,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                 <button
                                     key={opt}
                                     onClick={() => updateData('diet', opt)}
-                                    className={`px-3 py-2 rounded-lg border text-sm transition-all ${formData.diet === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-white/10 hover:bg-white/5 text-text-muted-zinc'}`}
+                                    className={`px-3 py-2 rounded-lg border text-sm transition-all ${formData.diet === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-text-cream/10 hover:bg-text-cream/5 text-text-muted-zinc'}`}
                                 >
                                     {opt}
                                 </button>
@@ -229,7 +229,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                     <button
                                         key={opt}
                                         onClick={() => updateData('skinType', opt)}
-                                        className={`px-3 py-2 rounded-lg border text-sm text-left transition-all ${formData.skinType === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-white/10 hover:bg-white/5 text-text-muted-zinc'}`}
+                                        className={`px-3 py-2 rounded-lg border text-sm text-left transition-all ${formData.skinType === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-text-cream/10 hover:bg-text-cream/5 text-text-muted-zinc'}`}
                                     >
                                         {opt}
                                     </button>
@@ -270,7 +270,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                     <button
                                         key={opt}
                                         onClick={() => updateData('hairType', opt)}
-                                        className={`px-3 py-2 rounded-lg border text-sm text-left transition-all ${formData.hairType === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-white/10 hover:bg-white/5 text-text-muted-zinc'}`}
+                                        className={`px-3 py-2 rounded-lg border text-sm text-left transition-all ${formData.hairType === opt ? 'bg-text-cream text-warm-charcoal border-text-cream' : 'border-text-cream/10 hover:bg-text-cream/5 text-text-muted-zinc'}`}
                                     >
                                         {opt}
                                     </button>
@@ -293,7 +293,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                             <textarea
                                 value={formData.allergies}
                                 onChange={e => updateData('allergies', e.target.value)}
-                                className="w-full bg-surface-charcoal border border-white/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors min-h-[80px]"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors min-h-[80px]"
                             />
                         </div>
                         <div>
@@ -301,7 +301,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                             <textarea
                                 value={formData.conditions}
                                 onChange={e => updateData('conditions', e.target.value)}
-                                className="w-full bg-surface-charcoal border border-white/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors min-h-[80px]"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors min-h-[80px]"
                             />
                         </div>
                     </div>
@@ -326,7 +326,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                             .filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted'].includes(key))
                             .map(([key, value]) => (
                                 <div key={key} className="flex items-center gap-3 group">
-                                    <div className="flex-1 bg-surface-charcoal border border-white/10 rounded-lg px-4 py-3 flex items-center gap-4">
+                                    <div className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 flex items-center gap-4">
                                         <span className="text-text-muted-zinc text-sm font-medium uppercase tracking-wider min-w-[100px]">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
                                         <div className="h-4 w-px bg-white/10"></div>
                                         <input
@@ -342,7 +342,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                             delete (newData as any)[key];
                                             setFormData(newData);
                                         }}
-                                        className="p-3 text-text-muted-zinc hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                        className="p-3 text-text-muted-zinc hover:text-red-400 hover:bg-text-cream/5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                                         title="Forget this memory"
                                     >
                                         <X size={18} />
@@ -352,7 +352,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
 
                         {/* Empty state if no extra memories */}
                         {Object.entries(formData).filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted'].includes(key)).length === 0 && (
-                            <div className="text-center py-8 border border-dashed border-white/10 rounded-lg text-text-muted-zinc/50 text-sm">
+                            <div className="text-center py-8 border border-dashed border-text-cream/10 rounded-lg text-text-muted-zinc/50 text-sm">
                                 No specialized memories yet. Upload a photo or chat with Ekam to generate insights.
                             </div>
                         )}

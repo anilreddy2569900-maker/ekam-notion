@@ -12,6 +12,10 @@ export default {
         'text-cream': 'var(--color-text-cream)',
         'text-muted-zinc': 'var(--color-text-muted-zinc)',
         'accent-clay': 'var(--color-accent-clay)',
+        'sidebar-bg': 'var(--color-sidebar-bg)',
+        'border-light': 'var(--color-border-light)',
+        'surface-hover': 'var(--color-surface-hover)',
+        'modal-bg': 'var(--color-modal-bg)',
       },
       fontFamily: {
         serif: ['Playfair Display', 'serif'],

@@ -144,6 +144,20 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
                                         </div>
                                     </div>
 
+
+                                    {/* Know More Section */}
+                                    <div className="text-center pb-8">
+                                        <a
+                                            href="https://about.ekamhealth.online"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 px-6 py-3 bg-warm-charcoal border border-text-cream/20 text-text-cream rounded-full hover:bg-text-cream hover:text-warm-charcoal transition-all duration-300 font-serif tracking-wide group"
+                                        >
+                                            Know More About Ekam
+                                            <span className="group-hover:translate-x-1 transition-transform">→</span>
+                                        </a>
+                                    </div>
+
                                     {/* Footer Credit */}
 
 
@@ -152,8 +166,9 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
                         </div>
                     </motion.div>
                 </>
-            )}
-        </AnimatePresence>
+            )
+            }
+        </AnimatePresence >
     );
 };
 

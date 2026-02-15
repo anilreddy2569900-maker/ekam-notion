@@ -193,7 +193,7 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 10 }}
                                 transition={{ duration: 0.3 }}
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warm-charcoal/40 border border-text-cream/5 shadow-sm"
                             >
                                 {/* Pulsing dot */}
                                 <motion.div
@@ -201,10 +201,10 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                                     animate={{ opacity: [0.4, 1, 0.4], scale: [0.9, 1.1, 0.9] }}
                                     transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
                                 />
-                                <span className="text-[12px] text-text-muted-zinc/60 tracking-wide"
+                                <span className="text-[12px] text-text-muted-zinc/80 tracking-wide"
                                     style={{ fontFamily: "'Inter', sans-serif" }}>
                                     {AGENT_NAMES[agentKey] || agentKey}
-                                    <span className="text-text-muted-zinc/30 ml-1.5">analyzing...</span>
+                                    <span className="text-text-muted-zinc/50 ml-1.5">analyzing...</span>
                                 </span>
                             </motion.div>
                         ))}
@@ -217,12 +217,12 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 transition={{ duration: 0.5, ease: 'easeOut' }}
-                                className="px-4 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08]"
+                                className="px-4 py-2.5 rounded-lg bg-warm-charcoal/60 border border-text-cream/10 shadow-sm"
                             >
                                 <div className="flex items-center gap-2 mb-1">
                                     {/* Checkmark */}
-                                    <span className="text-accent-clay/80 text-[11px]">✓</span>
-                                    <span className="text-[12px] text-text-muted-zinc/70 tracking-wide font-medium"
+                                    <span className="text-accent-clay text-[11px]">✓</span>
+                                    <span className="text-[12px] text-text-cream/80 tracking-wide font-medium"
                                         style={{ fontFamily: "'Inter', sans-serif" }}>
                                         {AGENT_NAMES[agentKey] || agentKey}
                                     </span>
@@ -232,7 +232,7 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 0.5 }}
                                         transition={{ delay: 0.2, duration: 0.4 }}
-                                        className="text-[11px] text-text-muted-zinc/40 leading-relaxed pl-5 italic"
+                                        className="text-[11px] text-text-muted-zinc/70 leading-relaxed pl-5 italic"
                                         style={{ fontFamily: "'Inter', sans-serif" }}
                                     >
                                         {agentData.snippet}

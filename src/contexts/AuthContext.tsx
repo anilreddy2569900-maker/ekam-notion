@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             {loading ? (
                 <div className="h-screen w-screen bg-warm-charcoal flex flex-col items-center justify-center text-text-cream space-y-4">
                     <div className="w-8 h-8 border-2 border-accent-clay border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-serif text-sm animate-pulse">Connecting to Notion AI...</p>
+                    <p className="font-serif text-sm animate-pulse">Connecting to Ekam...</p>
                 </div>
             ) : (
                 children

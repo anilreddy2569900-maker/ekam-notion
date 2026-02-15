@@ -37,140 +37,128 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
 
     if (messages.length === 0) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center text-text-muted-zinc p-8 min-h-[60vh]">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 min-h-[60vh] overflow-hidden relative">
+                {/* Ambient Background Elements */}
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                    className="flex flex-col items-center space-y-6"
-                >
-                    {/* Premium Text Logo - No Icon */}
-                    <motion.div
-                        animate={{ y: [0, -6, 0] }}
-                        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-                        className="relative"
-                    >
-                        <div className="absolute inset-0 bg-gradient-to-r from-accent-clay/10 via-transparent to-accent-blue/10 blur-3xl rounded-full opacity-30" />
-                        <h1
-                            className="text-7xl md:text-8xl tracking-[0.15em] relative z-10"
-                            style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }}
-                        >
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-text-cream via-text-cream to-text-muted-zinc">
-                                ekam
-                            </span>
-                        </h1>
-                    </motion.div>
+                    animate={{
+                        scale: [1, 1.2, 1],
+                        opacity: [0.1, 0.2, 0.1],
+                    }}
+                    transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+                    className="absolute top-1/4 -left-20 w-96 h-96 bg-accent-clay/5 rounded-full blur-[100px] pointer-events-none"
+                />
+                <motion.div
+                    animate={{
+                        scale: [1, 1.1, 1],
+                        opacity: [0.1, 0.15, 0.1],
+                    }}
+                    transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+                    className="absolute bottom-1/4 -right-20 w-[400px] h-[400px] bg-text-cream/5 rounded-full blur-[120px] pointer-events-none"
+                />
 
-                    {/* Text Content */}
-                    <div className="text-center space-y-3 relative z-10">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }} // smooth easeOutQuint
+                    className="flex flex-col items-center space-y-8 z-10"
+                >
+                    {/* Minimal typographic logo */}
+                    <div className="relative group cursor-default">
+                        <motion.h1
+                            className="text-8xl md:text-9xl tracking-tight text-text-cream select-none"
+                            style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }}
+                            initial={{ letterSpacing: "0.1em", filter: "blur(10px)" }}
+                            animate={{ letterSpacing: "-0.02em", filter: "blur(0px)" }}
+                            transition={{ duration: 1.5, ease: "easeOut" }}
+                        >
+                            ekam
+                        </motion.h1>
+                        {/* Subtle glow on hover */}
+                        <motion.div
+                            className="absolute inset-0 bg-accent-clay/10 blur-3xl opacity-0 group-hover:opacity-50 transition-opacity duration-700 rounded-full"
+                        />
+                    </div>
+
+                    <div className="text-center space-y-2">
                         <motion.p
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3, duration: 0.8 }}
-                            className="text-lg md:text-xl text-text-muted-zinc/80 font-light tracking-[0.2em] uppercase"
-                            style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}
+                            transition={{ delay: 0.5, duration: 0.8 }}
+                            className="text-lg md:text-xl text-text-muted-zinc font-light tracking-wide"
                         >
-                            Your Personal Health Assistant
+                            Your personal health council
                         </motion.p>
                     </div>
 
-                    {/* Subtle Hint */}
-                    <motion.p
+                    {/* Minimal Input Hint */}
+                    <motion.div
                         initial={{ opacity: 0 }}
-                        animate={{ opacity: 0.5 }}
-                        transition={{ delay: 1.5, duration: 1 }}
-                        className="text-sm text-text-muted-zinc/40 pt-8"
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 1.2, duration: 1 }}
+                        className="mt-12 flex items-center gap-2 text-text-muted-zinc/60 text-sm font-light"
                     >
-                        Ask anything to get started...
-                    </motion.p>
+                        <div className="w-1 h-1 rounded-full bg-accent-clay/40 animate-pulse" />
+                        Type anything to begin
+                    </motion.div>
                 </motion.div>
             </div>
         );
     }
 
     return (
-        <div className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto px-4 py-8 space-y-8 pb-40">
+        <div className="flex-1 overflow-y-auto w-full max-w-4xl mx-auto px-4 py-6 space-y-8 pb-40">
             {messages.map((msg, index) => (
                 <motion.div
                     key={msg.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
                     className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                     {msg.role === 'user' ? (
-                        <div className="max-w-[85%] sm:max-w-[75%] bg-transparent border border-white/20 text-text-cream/95 rounded-2xl px-5 py-3 text-[15px] leading-relaxed backdrop-blur-sm">
+                        <motion.div
+                            whileHover={{ scale: 1.005 }}
+                            className="max-w-[85%] sm:max-w-[75%] bg-white/60 dark:bg-white/5 border border-text-cream/5 shadow-sm text-text-cream rounded-2xl rounded-tr-sm px-6 py-4 text-[16px] leading-relaxed backdrop-blur-sm"
+                        >
                             {msg.content}
-                        </div>
+                        </motion.div>
                     ) : (
-                        <div className="flex gap-4 max-w-[95%] sm:max-w-[85%]">
-                            <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center mt-1 text-text-muted-zinc">
-                                <span className="font-serif text-xs">E</span>
+                        <div className="flex gap-5 max-w-[95%] sm:max-w-[85%] group">
+                            <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center mt-1 bg-warm-charcoal border border-text-cream/5 shadow-sm text-text-cream">
+                                <span className="font-serif text-xs italic">e</span>
                             </div>
                             <div className="text-text-cream/90 font-serif text-[17px] leading-relaxed pt-1 w-full overflow-hidden">
-                                {/* Agent Thinking Bubble - Expandable Clinical Notes */}
                                 {msg.agentNotes && msg.agentNotes.length > 0 && (
                                     <ThinkingBubble agentNotes={msg.agentNotes} />
                                 )}
-                                <div className="prose max-w-none text-text-cream prose-p:leading-relaxed prose-pre:bg-surface-charcoal prose-pre:rounded-xl prose-pre:p-4 prose-code:text-accent-clay prose-code:bg-surface-charcoal/50 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[0.9em] prose-headings:font-serif prose-headings:font-medium prose-strong:text-text-cream">
+                                <div className="prose max-w-none text-text-cream prose-p:leading-relaxed prose-pre:bg-warm-charcoal prose-pre:border prose-pre:border-text-cream/5 prose-pre:rounded-xl prose-pre:p-4 prose-code:text-accent-clay prose-code:bg-warm-charcoal prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:font-mono prose-code:text-[0.9em] prose-headings:font-serif prose-headings:font-medium prose-strong:text-text-cream prose-a:text-accent-clay prose-a:no-underline hover:prose-a:underline">
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm, remarkMath]}
                                         rehypePlugins={[rehypeKatex]}
                                         components={{
-                                            // 1. Fix the Table Structure (Borders & Backgrounds)
                                             table: ({ node, ...props }) => (
-                                                <div className="overflow-x-auto my-6 rounded-lg border border-surface-charcoal/50">
-                                                    <table className="w-full text-left border-collapse text-text-cream" {...props} />
+                                                <div className="overflow-x-auto my-6 rounded-xl border border-text-cream/10 shadow-sm bg-white/30">
+                                                    <table className="w-full text-left border-collapse" {...props} />
                                                 </div>
                                             ),
                                             thead: ({ node, ...props }) => (
-                                                <thead className="bg-surface-charcoal text-text-cream" {...props} />
+                                                <thead className="bg-warm-charcoal text-text-cream/80" {...props} />
                                             ),
                                             tbody: ({ node, ...props }) => (
-                                                <tbody className="divide-y divide-surface-charcoal/30 bg-surface-charcoal/50" {...props} />
+                                                <tbody className="divide-y divide-text-cream/5" {...props} />
                                             ),
                                             tr: ({ node, ...props }) => (
-                                                <tr className="hover:bg-surface-charcoal/80 transition-colors" {...props} />
+                                                <tr className="hover:bg-warm-charcoal/50 transition-colors" {...props} />
                                             ),
                                             th: ({ node, ...props }) => (
-                                                <th className="px-4 py-3 font-semibold text-sm uppercase tracking-wider border-r border-surface-charcoal/30 last:border-r-0 text-text-muted-zinc" {...props} />
+                                                <th className="px-5 py-3 font-medium text-xs uppercase tracking-wider text-text-muted-zinc" {...props} />
                                             ),
                                             td: ({ node, ...props }) => (
-                                                <td className="px-4 py-3 text-sm border-r border-surface-charcoal/30 last:border-r-0" {...props} />
+                                                <td className="px-5 py-3 text-sm text-text-muted-zinc" {...props} />
                                             ),
-
-                                            // 2. Fix Text Spacing & Structure
-                                            p: ({ node, ...props }) => (
-                                                <p className="mb-5 leading-7 text-text-cream" {...props} />
-                                            ),
-                                            ul: ({ node, ...props }) => (
-                                                <ul className="list-disc pl-6 mb-5 space-y-2 text-text-cream" {...props} />
-                                            ),
-                                            ol: ({ node, ...props }) => (
-                                                <ol className="list-decimal pl-6 mb-5 space-y-2 text-text-cream" {...props} />
-                                            ),
-                                            li: ({ node, ...props }) => (
-                                                <li className="pl-1" {...props} />
-                                            ),
-
-                                            // 3. Headings & Code
-                                            h1: ({ node, ...props }) => <h1 className="text-3xl font-bold mt-8 mb-4 text-text-cream" {...props} />,
-                                            h2: ({ node, ...props }) => <h2 className="text-2xl font-semibold mt-6 mb-3 text-text-cream border-b border-surface-charcoal/30 pb-2" {...props} />,
-                                            h3: ({ node, ...props }) => <h3 className="text-xl font-semibold mt-4 mb-2 text-text-cream" {...props} />,
                                             blockquote: ({ node, ...props }) => (
-                                                <blockquote className="border-l-4 border-accent-clay pl-4 py-1 my-4 bg-surface-charcoal/30 italic rounded-r text-text-muted-zinc" {...props} />
+                                                <blockquote className="border-l-2 border-accent-clay/50 pl-5 py-2 my-6 bg-warm-charcoal/50 italic rounded-r text-text-muted-zinc" {...props} />
                                             ),
-                                            code: ({ node, className, children, ...props }: any) => {
-                                                return !className?.includes('language-') && !String(children).includes('\n') ? (
-                                                    <code className="text-accent-clay bg-surface-charcoal/50 rounded px-1.5 py-0.5 font-mono text-[0.9em]" {...props}>
-                                                        {children}
-                                                    </code>
-                                                ) : (
-                                                    <code className={className} {...props}>
-                                                        {children}
-                                                    </code>
-                                                )
-                                            }
                                         }}
                                     >
                                         {msg.content}
@@ -182,16 +170,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
                 </motion.div>
             ))}
 
-            {/* Neural Wait Animation - "The Synapse" (Complex Mode) */}
             {isTyping && loadingPhase !== 'done' && (
-                <div className="w-full flex justify-center py-4">
+                <div className="w-full flex justify-center py-6">
                     <ThinkingState activeAgents={activeAgents} thinkingProgress={thinkingProgress} />
                 </div>
             )}
 
-            {/* Standard Typing Bubble - "Express Lane" (Simple Mode) replaced by Fast Neural Sphere */}
             {isTyping && loadingPhase === 'done' && (
-                <div className="w-full flex justify-center py-4">
+                <div className="w-full flex justify-center py-6">
                     <ThinkingState mode="simple" />
                 </div>
             )}

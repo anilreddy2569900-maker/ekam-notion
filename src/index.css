@@ -46,6 +46,24 @@
       radial-gradient(ellipse 50% 30% at 85% 10%, rgba(176, 196, 164, 0.06) 0%, transparent 35%);
   }
 
+  .dark {
+    /* Dark Theme - Deep Charcoal & Clay */
+    --color-warm-charcoal: #191919;
+    --color-surface-charcoal: #252525;
+
+    --color-text-cream: #EAEAEA;
+    --color-text-muted-zinc: #A1A1AA;
+
+    --color-accent-clay: #D97757;
+
+    --color-border-light: rgba(255, 255, 255, 0.1);
+    --color-surface-hover: #2A2A2A;
+    --color-modal-bg: #1F1F1F;
+    --color-sidebar-bg: #1E1E1E;
+
+    --gradient-nature: none;
+  }
+
   /* Light mode nature background */
   .light body,
   .light #root {

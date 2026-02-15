@@ -27,6 +27,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
         }
     };
 
+    const sidebarVariants = {
+        open: { x: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 300, damping: 30 } },
+        closed: { x: -300, opacity: 0, transition: { type: "spring" as const, stiffness: 300, damping: 30 } }
+    };
+
+    const itemVariants = {
+        hover: { scale: 1.02, x: 5, transition: { type: "spring" as const, stiffness: 400, damping: 10 } },
+        tap: { scale: 0.98 }
+    };
+
     return (
         <AnimatePresence>
             {isOpen && (
@@ -37,110 +47,107 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
-                        className="fixed inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm z-40 md:hidden"
+                        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden"
                     />
 
                     {/* Sidebar */}
                     <motion.div
-                        initial={{ x: -300 }}
-                        animate={{ x: 0 }}
-                        exit={{ x: -300 }}
-                        transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                        className="fixed left-0 top-0 bottom-0 w-72 bg-surface-charcoal border-r border-text-cream/10 shadow-2xl z-50 flex flex-col"
+                        initial="closed"
+                        animate="open"
+                        exit="closed"
+                        variants={sidebarVariants}
+                        className="fixed left-0 top-0 bottom-0 w-72 bg-sidebar-bg border-r border-text-cream/5 shadow-2xl shadow-text-cream/5 z-50 flex flex-col"
                     >
-                        <div className="p-6 border-b border-text-cream/10 flex items-center justify-between">
+                        <div className="p-6 flex items-center justify-between">
                             <h1
-                                className="text-3xl tracking-[0.05em] text-text-cream relative z-10"
-                                style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 400 }}
+                                className="text-3xl tracking-tight text-text-cream relative z-10"
+                                style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 500 }}
                             >
                                 ekam
                             </h1>
-                            <button onClick={onClose} className="md:hidden text-text-muted-zinc/60 hover:text-text-cream transition-colors">
+                            <button onClick={onClose} className="md:hidden text-text-muted-zinc hover:text-text-cream transition-colors">
                                 <X size={20} />
                             </button>
                         </div>
 
-                        <div className="p-4 space-y-2">
-                            <button
+                        <div className="p-4 space-y-3">
+                            <motion.button
+                                variants={itemVariants}
+                                whileHover="hover"
+                                whileTap="tap"
                                 onClick={() => {
                                     onNewChat();
                                     onClose();
                                 }}
-                                className="w-full flex items-center gap-3 px-4 py-3 bg-warm-charcoal hover:bg-warm-charcoal/80 text-text-cream rounded-xl transition-all border border-text-cream/10 hover:border-text-cream/20 group"
+                                className="w-full flex items-center gap-3 px-4 py-3 bg-warm-charcoal hover:bg-white text-text-cream rounded-xl transition-colors border border-text-cream/5 shadow-sm group"
                             >
-                                <div className="p-1 rounded-lg text-text-cream/70 group-hover:text-text-cream transition-colors">
+                                <div className="p-1.5 rounded-lg bg-text-cream/5 text-text-cream group-hover:bg-accent-clay/10 group-hover:text-accent-clay transition-colors">
                                     <Plus size={18} />
                                 </div>
                                 <span className="font-medium text-sm tracking-wide">New Chat</span>
-                            </button>
+                            </motion.button>
 
-                            <button
-                                onClick={() => {
-                                    onOpenVault();
-                                    onClose();
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-all"
-                            >
-                                <FileText size={18} className="opacity-70" />
-                                <span className="font-medium text-sm tracking-wide">Health Records</span>
-                            </button>
+                            <div className="space-y-1 pt-2">
+                                {[
+                                    { icon: FileText, label: "Health Records", action: onOpenVault },
+                                    { icon: Dumbbell, label: "Fitness", action: onOpenFitness },
+                                    { icon: Settings, label: "Settings", action: onOpenSettings },
+                                ].map((item, idx) => (
+                                    <motion.button
+                                        key={idx}
+                                        variants={itemVariants}
+                                        whileHover="hover"
+                                        whileTap="tap"
+                                        onClick={() => {
+                                            item.action();
+                                            onClose();
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-2.5 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-colors"
+                                    >
+                                        <item.icon size={18} className="opacity-70" />
+                                        <span className="font-medium text-sm tracking-wide">{item.label}</span>
+                                    </motion.button>
+                                ))}
+                            </div>
 
-                            <button
-                                onClick={() => {
-                                    onOpenFitness();
-                                    onClose();
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-all"
-                            >
-                                <Dumbbell size={18} className="opacity-70" />
-                                <span className="font-medium text-sm tracking-wide">Fitness</span>
-                            </button>
-
-                            <button
-                                onClick={() => {
-                                    onOpenSettings();
-                                    onClose();
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-all"
-                            >
-                                <Settings size={18} className="opacity-70" />
-                                <span className="font-medium text-sm tracking-wide">Profile & Settings</span>
-                            </button>
-
-                            <button
+                            <motion.button
+                                variants={itemVariants}
+                                whileHover="hover"
+                                whileTap="tap"
                                 onClick={() => {
                                     onOpenGuide();
                                     onClose();
                                 }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-text-muted-zinc hover:text-text-cream hover:bg-white/5 rounded-xl transition-all group"
+                                className="w-full flex items-center gap-3 px-4 py-2.5 text-text-muted-zinc hover:text-text-cream hover:bg-text-cream/5 rounded-xl transition-all group"
                             >
-                                <span className="text-lg leading-none group-hover:text-amber-400 transition-colors font-serif italic w-[18px] text-center">i</span>
+                                <span className="text-lg leading-none group-hover:text-accent-clay transition-colors font-serif italic w-[18px] text-center">i</span>
                                 <span className="font-medium text-sm tracking-wide">About Ekam</span>
-                            </button>
+                            </motion.button>
                         </div>
 
                         {/* Recent Chats List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-1">
                             {chats.length > 0 && (
-                                <h3 className="text-[10px] font-medium text-text-muted-zinc/40 uppercase tracking-[0.2em] mb-4 px-2">Recent Chats</h3>
+                                <h3 className="text-[10px] font-medium text-text-muted-zinc/60 uppercase tracking-[0.2em] mb-3 px-2">Recent Chats</h3>
                             )}
                             {chats.map(chat => (
                                 <div key={chat.id} className="group relative">
-                                    <button
+                                    <motion.button
+                                        whileHover={{ x: 3, backgroundColor: "rgba(0,0,0,0.02)" }}
                                         onClick={() => {
                                             onSelectChat(chat.id);
                                             onClose();
                                         }}
-                                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 transition-all flex items-start gap-3 group-hover:pr-10"
+                                        className="w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-3 group-hover:pr-8"
                                     >
-                                        <MessageSquare size={14} className="mt-1 flex-shrink-0 text-text-muted-zinc/40 group-hover:text-text-muted-zinc/70 transition-colors" />
+                                        <MessageSquare size={14} className="flex-shrink-0 text-text-muted-zinc/50 group-hover:text-accent-clay transition-colors" />
                                         <div className="min-w-0">
                                             <p className="text-sm text-text-muted-zinc group-hover:text-text-cream transition-colors line-clamp-1 font-light tracking-wide">{chat.title}</p>
                                         </div>
-                                    </button>
+                                    </motion.button>
                                     <button
                                         onClick={(e) => handleDeleteChat(e, chat.id)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 rounded-lg transition-all text-text-muted-zinc/40"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 text-text-muted-zinc/50 hover:text-red-500 rounded-md transition-all scale-90 hover:scale-100"
                                         title="Delete Chat"
                                     >
                                         <Trash2 size={13} />
@@ -150,25 +157,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
                         </div>
 
                         {/* User Profile - Clean Aesthetic */}
-                        <div className="p-6 border-t border-text-cream/10">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-full bg-warm-charcoal border border-text-cream/10 flex items-center justify-center text-text-cream shadow-inner">
-                                    <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: '1.2rem' }}>
+                        <div className="p-5 border-t border-text-cream/5 bg-warm-charcoal/50">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-surface-hover border border-text-cream/5 flex items-center justify-center text-text-cream shadow-sm">
+                                    <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: '1.1rem' }}>
                                         {user?.displayName?.[0] || 'A'}
                                     </span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-text-cream/80 truncate tracking-wide" style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: '1.1rem' }}>
+                                    <p className="text-sm font-medium text-text-cream truncate tracking-wide" style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: '1.05rem' }}>
                                         {user?.displayName?.split(' ')[0] || 'Anil'}
                                     </p>
                                 </div>
-                                <button
+                                <motion.button
+                                    whileHover={{ scale: 1.1, color: "#ef4444" }}
+                                    whileTap={{ scale: 0.9 }}
                                     onClick={() => logout()}
-                                    className="p-2 text-text-muted-zinc/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                    className="p-2 text-text-muted-zinc/60 hover:bg-red-50 rounded-lg transition-colors"
                                     title="Logout"
                                 >
-                                    <LogOut size={18} />
-                                </button>
+                                    <LogOut size={16} />
+                                </motion.button>
                             </div>
                         </div>
                     </motion.div>

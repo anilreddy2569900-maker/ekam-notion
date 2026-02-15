@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, Brain, Stethoscope, Utensils, Dumbbell, Moon, Activity, Heart, Sparkles, Leaf } from 'lucide-react';
+import { ChevronDown, Brain, Stethoscope, Utensils, Dumbbell, Moon, Activity, Heart, Sparkles, Leaf } from 'lucide-react';
 
 // Agent display names and icons
 const AGENT_INFO: Record<string, { name: string; icon: React.ElementType; color: string }> = {
@@ -39,17 +39,17 @@ export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isTh
             {/* Collapsed View - Agent Pills */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center gap-2 px-4 py-2 bg-surface-charcoal/50 border border-white/5 rounded-full hover:bg-surface-charcoal/70 transition-all duration-300 group"
+                className="flex items-center gap-2 px-4 py-2 bg-warm-charcoal/50 border border-text-cream/5 rounded-full hover:bg-warm-charcoal transition-all duration-300 group shadow-sm"
             >
-                <Brain size={14} className="text-accent-clay/70" />
-                <span className="text-[11px] text-text-muted-zinc/60 tracking-wider uppercase" style={{ fontWeight: 300 }}>
+                <Brain size={14} className="text-accent-clay/80" />
+                <span className="text-[11px] text-text-muted-zinc/80 tracking-wider uppercase" style={{ fontWeight: 500 }}>
                     {isThinking ? 'Consulting specialists' : `${agentNotes.length} specialist${agentNotes.length > 1 ? 's' : ''} consulted`}
                 </span>
 
                 {/* Agent Avatars */}
                 <div className="flex -space-x-2 ml-2">
                     {agentNotes.map((note, i) => {
-                        const info = AGENT_INFO[note.agent] || { name: note.agent, icon: Brain, color: 'text-gray-400' };
+                        const info = AGENT_INFO[note.agent] || { name: note.agent, icon: Brain, color: 'text-text-muted-zinc' };
                         const Icon = info.icon;
                         return (
                             <motion.div
@@ -62,7 +62,7 @@ export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isTh
                                     stiffness: 300,
                                     damping: 20,
                                 }}
-                                className={`w-5 h-5 rounded-full bg-surface-charcoal border border-white/10 flex items-center justify-center ${info.color}`}
+                                className={`w-5 h-5 rounded-full bg-surface-hover border border-warm-charcoal flex items-center justify-center ${info.color}`}
                                 title={info.name}
                             >
                                 <Icon size={10} />
@@ -76,7 +76,7 @@ export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isTh
                     <motion.span
                         animate={{ rotate: isExpanded ? 180 : 0 }}
                         transition={{ duration: 0.3, ease: "easeInOut" }}
-                        className="text-text-muted-zinc/30 group-hover:text-text-muted-zinc/60 transition-colors ml-1"
+                        className="text-text-muted-zinc/50 group-hover:text-text-cream/70 transition-colors ml-1"
                     >
                         <ChevronDown size={12} />
                     </motion.span>
@@ -94,9 +94,9 @@ export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isTh
                         className="overflow-hidden"
                     >
                         <div className="mt-3 space-y-2 pl-4 border-l border-gradient-to-b from-accent-clay/30 to-transparent"
-                            style={{ borderImage: 'linear-gradient(to bottom, rgba(217,119,87,0.3), transparent) 1' }}>
+                            style={{ borderImage: 'linear-gradient(to bottom, rgba(196, 80, 42, 0.3), transparent) 1' }}>
                             {agentNotes.map((note, i) => {
-                                const info = AGENT_INFO[note.agent] || { name: note.agent, icon: Brain, color: 'text-gray-400' };
+                                const info = AGENT_INFO[note.agent] || { name: note.agent, icon: Brain, color: 'text-text-muted-zinc' };
                                 const Icon = info.icon;
                                 return (
                                     <motion.div
@@ -109,13 +109,13 @@ export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isTh
                                             stiffness: 250,
                                             damping: 22,
                                         }}
-                                        className="bg-surface-charcoal/20 rounded-lg p-3 hover:bg-surface-charcoal/30 transition-colors duration-300"
+                                        className="bg-warm-charcoal/40 rounded-lg p-3 hover:bg-warm-charcoal/80 transition-colors duration-300 border border-text-cream/5"
                                     >
                                         <div className={`flex items-center gap-2 mb-1 ${info.color}`}>
                                             <Icon size={12} />
-                                            <span className="text-[11px] font-medium tracking-wide uppercase">{info.name}</span>
+                                            <span className="text-[11px] font-medium tracking-wide uppercase text-text-cream/70">{info.name}</span>
                                         </div>
-                                        <p className="text-sm text-text-cream/60 leading-relaxed" style={{ fontWeight: 300 }}>
+                                        <p className="text-sm text-text-muted-zinc leading-relaxed" style={{ fontWeight: 400 }}>
                                             {note.note}
                                         </p>
                                     </motion.div>

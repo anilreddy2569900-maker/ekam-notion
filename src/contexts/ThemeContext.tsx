@@ -12,11 +12,11 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [theme, setTheme] = useState<Theme>(() => {
         // Check local storage or system preference
-        const savedTheme = localStorage.getItem('theme') as Theme;
+        const savedTheme = localStorage.getItem('ekam_theme_v2') as Theme;
         if (savedTheme) {
             return savedTheme;
         }
-        return 'light'; // Default to light (Cream)
+        return 'light'; // Default to light (Cream) as requested
     });
 
     useEffect(() => {
@@ -29,7 +29,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         root.classList.add(theme);
 
         // Save to local storage
-        localStorage.setItem('theme', theme);
+        localStorage.setItem('ekam_theme_v2', theme);
     }, [theme]);
 
     const toggleTheme = () => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Activity, Brain, Zap, Shield, Microscope, Scale, Heart, Leaf, Sparkles } from 'lucide-react';
 import type { ThinkingProgressData } from './ChatArea';
 
 // Agent display names
@@ -12,6 +13,18 @@ const AGENT_NAMES: Record<string, string> = {
     vitalist: 'Vitalist',
     endocrine: 'Endocrine Balancer',
     environment: 'Environmentalist',
+};
+
+// Agent Icons
+const AGENT_ICONS: Record<string, React.ElementType> = {
+    dermatologist: Microscope,
+    metabolic: Zap,
+    somatic: Shield,
+    neuro: Brain,
+    guardian: Heart,
+    vitalist: Activity,
+    endocrine: Scale,
+    environment: Leaf,
 };
 
 // Phase display labels
@@ -31,7 +44,7 @@ interface ThinkingStateProps {
 export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', activeAgents = [], thinkingProgress }) => {
     const [phraseIndex, setPhraseIndex] = useState(0);
 
-    // Fallback phrases for when no live data is available
+    // Fallback phrases
     const getFallbackPhrases = () => {
         if (mode === 'simple') {
             return ["Thinking...", "Processing..."];
@@ -56,7 +69,7 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
     }, [activeAgents.length, mode]);
 
     useEffect(() => {
-        if (thinkingProgress) return; // Don't cycle if we have live data
+        if (thinkingProgress) return;
         const interval = setInterval(() => {
             setPhraseIndex((prev) => (prev + 1) % PHRASES.length);
         }, 2800);
@@ -64,12 +77,10 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
     }, [PHRASES.length, thinkingProgress]);
 
     const isSimple = mode === 'simple';
-    const containerSize = isSimple ? 'w-20 h-20' : 'w-36 h-36';
-    const coreSize = isSimple ? 'w-3 h-3' : 'w-4 h-4';
+    const containerSize = isSimple ? 'w-16 h-16' : 'w-24 h-24';
 
     const ripples = isSimple ? [0] : [0, 1, 2];
 
-    // Determine current status text
     const hasLiveData = thinkingProgress && thinkingProgress.agents && Object.keys(thinkingProgress.agents).length > 0;
     const currentPhaseLabel = thinkingProgress ? (PHASE_LABELS[thinkingProgress.phase] || thinkingProgress.phase) : PHRASES[phraseIndex];
 
@@ -84,26 +95,21 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
         : [];
 
     return (
-        <div className={`flex flex-col items-center justify-center w-full max-w-lg mx-auto ${isSimple ? 'py-3' : 'py-6'}`}>
+        <div className={`flex flex-col items-center justify-center w-full max-w-2xl mx-auto ${isSimple ? 'py-2' : 'py-6'}`}>
 
-            {/* THE BREATHING LIGHT */}
-            <div className={`relative flex items-center justify-center ${containerSize} ${isSimple ? 'mb-3' : 'mb-5'}`}>
-
+            {/* THE BREATHING CORE */}
+            <div className={`relative flex items-center justify-center ${containerSize} ${isSimple ? 'mb-2' : 'mb-6'}`}>
                 {/* Ambient Haze */}
                 <motion.div
                     className="absolute inset-0 rounded-full"
                     animate={{
-                        opacity: [0.15, 0.35, 0.15],
-                        scale: [0.9, 1.1, 0.9],
+                        opacity: [0.1, 0.25, 0.1],
+                        scale: [0.8, 1.2, 0.8],
                     }}
-                    transition={{
-                        duration: isSimple ? 2 : 4,
-                        repeat: Infinity,
-                        ease: "easeInOut",
-                    }}
+                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
                     style={{
-                        background: 'radial-gradient(circle, rgba(217,119,87,0.25) 0%, rgba(217,119,87,0.08) 40%, transparent 70%)',
-                        filter: 'blur(20px)',
+                        background: 'radial-gradient(circle, rgba(217,119,87,0.2) 0%, transparent 70%)',
+                        filter: 'blur(24px)',
                     }}
                 />
 
@@ -111,135 +117,121 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                 {ripples.map((i) => (
                     <div
                         key={i}
-                        className="absolute inset-0 rounded-full border border-accent-clay/30"
+                        className="absolute inset-0 rounded-full border border-accent-clay/20"
                         style={{
-                            animation: `ripple-expand ${isSimple ? 2.2 : 3.5}s ease-out infinite`,
-                            animationDelay: `${i * 0.9}s`,
+                            animation: `ripple-expand ${3.5}s ease-out infinite`,
+                            animationDelay: `${i * 1.2}s`,
                         }}
                     />
                 ))}
 
-                {/* Primary Breathing Ring */}
-                <motion.div
-                    className="absolute rounded-full border border-accent-clay/40"
-                    animate={{
-                        scale: [0.85, 1, 0.85],
-                        opacity: [0.3, 0.6, 0.3],
-                        borderColor: [
-                            'rgba(217,119,87,0.2)',
-                            'rgba(217,119,87,0.5)',
-                            'rgba(217,119,87,0.2)',
-                        ],
-                    }}
-                    transition={{
-                        duration: isSimple ? 1.8 : 3.5,
-                        repeat: Infinity,
-                        ease: "easeInOut",
-                    }}
-                    style={{
-                        width: '65%',
-                        height: '65%',
-                    }}
-                />
-
-                {/* Core — The luminous center point */}
-                <motion.div
-                    className={`${coreSize} rounded-full bg-accent-clay relative z-10`}
-                    animate={{
-                        scale: [1, 1.3, 1],
-                        opacity: [0.7, 1, 0.7],
-                        boxShadow: [
-                            '0 0 12px rgba(217,119,87,0.3), 0 0 24px rgba(217,119,87,0.1)',
-                            '0 0 20px rgba(217,119,87,0.6), 0 0 40px rgba(217,119,87,0.2)',
-                            '0 0 12px rgba(217,119,87,0.3), 0 0 24px rgba(217,119,87,0.1)',
-                        ],
-                    }}
-                    transition={{
-                        duration: isSimple ? 1.8 : 3.5,
-                        repeat: Infinity,
-                        ease: "easeInOut",
-                    }}
-                >
-                    <div className="absolute inset-0.5 rounded-full bg-white/25 blur-[1px]" />
-                </motion.div>
+                {/* Core Icon */}
+                <div className="relative z-10 p-3 rounded-full bg-surface-charcoal border border-accent-clay/20 shadow-lg shadow-accent-clay/10">
+                    <Sparkles size={isSimple ? 16 : 24} className="text-accent-clay animate-pulse" />
+                </div>
             </div>
 
             {/* Phase Label */}
-            <div className="h-5 overflow-hidden relative w-full text-center mb-4">
+            <div className="h-6 overflow-hidden relative w-full text-center mb-6">
                 <AnimatePresence mode="wait">
-                    <motion.p
+                    <motion.div
                         key={currentPhaseLabel}
-                        initial={{ opacity: 0, y: 8, filter: 'blur(4px)' }}
-                        animate={{ opacity: 0.7, y: 0, filter: 'blur(0px)' }}
-                        exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
-                        transition={{ duration: 0.4, ease: 'easeOut' }}
-                        className={`absolute w-full tracking-widest uppercase text-text-muted-zinc/70 ${isSimple ? 'text-[10px]' : 'text-[11px]'}`}
-                        style={{ fontFamily: "'Inter', sans-serif", fontWeight: 300, letterSpacing: '0.2em' }}
+                        initial={{ opacity: 0, y: 10, filter: 'blur(5px)' }}
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, y: -10, filter: 'blur(5px)' }}
+                        transition={{ duration: 0.5, type: "spring", bounce: 0.2 }}
+                        className="flex items-center justify-center gap-2"
                     >
-                        {currentPhaseLabel}
-                    </motion.p>
+                        <span className={`tracking-[0.2em] uppercase text-text-muted-zinc/80 font-light ${isSimple ? 'text-[10px]' : 'text-xs'}`}>
+                            {currentPhaseLabel}
+                        </span>
+                    </motion.div>
                 </AnimatePresence>
             </div>
 
-            {/* LIVE AGENT THINKING FEED */}
+            {/* LIVE AGENT GRID */}
             {hasLiveData && !isSimple && (
-                <div className="w-full max-w-md space-y-2 mt-1">
+                <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3 px-4">
                     <AnimatePresence mode="popLayout">
-                        {/* Currently thinking agents */}
-                        {thinkingAgents.map(([agentKey]) => (
-                            <motion.div
-                                key={`thinking-${agentKey}`}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: 10 }}
-                                transition={{ duration: 0.3 }}
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warm-charcoal/40 border border-text-cream/5 shadow-sm"
-                            >
-                                {/* Pulsing dot */}
-                                <motion.div
-                                    className="w-2 h-2 rounded-full bg-accent-clay/70 shrink-0"
-                                    animate={{ opacity: [0.4, 1, 0.4], scale: [0.9, 1.1, 0.9] }}
-                                    transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                                />
-                                <span className="text-[12px] text-text-muted-zinc/80 tracking-wide"
-                                    style={{ fontFamily: "'Inter', sans-serif" }}>
-                                    {AGENT_NAMES[agentKey] || agentKey}
-                                    <span className="text-text-muted-zinc/50 ml-1.5">analyzing...</span>
-                                </span>
-                            </motion.div>
-                        ))}
+                        {/* Currently Thinking Agents */}
+                        {thinkingAgents.map(([agentKey]) => {
+                            const Icon = AGENT_ICONS[agentKey] || Activity;
+                            const name = AGENT_NAMES[agentKey] || agentKey;
 
-                        {/* Done agents with snippets */}
-                        {doneAgents.map(([agentKey, agentData]) => (
-                            <motion.div
-                                key={`done-${agentKey}`}
-                                initial={{ opacity: 0, y: 8, filter: 'blur(4px)' }}
-                                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                transition={{ duration: 0.5, ease: 'easeOut' }}
-                                className="px-4 py-2.5 rounded-lg bg-warm-charcoal/60 border border-text-cream/10 shadow-sm"
-                            >
-                                <div className="flex items-center gap-2 mb-1">
-                                    {/* Checkmark */}
-                                    <span className="text-accent-clay text-[11px]">✓</span>
-                                    <span className="text-[12px] text-text-cream/80 tracking-wide font-medium"
-                                        style={{ fontFamily: "'Inter', sans-serif" }}>
-                                        {AGENT_NAMES[agentKey] || agentKey}
-                                    </span>
-                                </div>
-                                {agentData.snippet && (
-                                    <motion.p
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 0.5 }}
-                                        transition={{ delay: 0.2, duration: 0.4 }}
-                                        className="text-[11px] text-text-muted-zinc/70 leading-relaxed pl-5 italic"
-                                        style={{ fontFamily: "'Inter', sans-serif" }}
-                                    >
-                                        {agentData.snippet}
-                                    </motion.p>
-                                )}
-                            </motion.div>
-                        ))}
+                            return (
+                                <motion.div
+                                    key={`thinking-${agentKey}`}
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+                                    transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                                    className="flex items-center gap-3 p-3 rounded-xl bg-surface-charcoal/50 border border-accent-clay/20 shadow-lg shadow-accent-clay/5 backdrop-blur-sm relative overflow-hidden group"
+                                >
+                                    {/* Shimmer Effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-shimmer" />
+
+                                    <div className="p-2 rounded-lg bg-accent-clay/10 text-accent-clay relative">
+                                        <Icon size={18} />
+                                        <span className="absolute top-0 right-0 w-2 h-2 bg-accent-clay rounded-full animate-ping" />
+                                        <span className="absolute top-0 right-0 w-2 h-2 bg-accent-clay rounded-full" />
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-text-cream/90 font-serif tracking-wide">{name}</span>
+                                        <span className="text-xs text-accent-clay/80 animate-pulse">Analyzing data...</span>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+
+                        {/* Done Agents */}
+                        {doneAgents.map(([agentKey, agentData]) => {
+                            const Icon = AGENT_ICONS[agentKey] || Activity;
+                            const name = AGENT_NAMES[agentKey] || agentKey;
+
+                            return (
+                                <motion.div
+                                    key={`done-${agentKey}`}
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                                    className="flex flex-col gap-2 p-3 rounded-xl bg-surface-charcoal/80 border border-text-cream/10 shadow-sm"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-lg bg-text-cream/5 text-text-muted-zinc">
+                                            <Icon size={16} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <span className="text-sm font-medium text-text-muted-zinc line-through decoration-text-cream/20">{name}</span>
+                                        </div>
+                                        <div className="w-5 h-5 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 border border-green-500/20">
+                                            <motion.svg
+                                                viewBox="0 0 24 24"
+                                                className="w-3 h-3 stroke-current stroke-2"
+                                                fill="none"
+                                                initial={{ pathLength: 0 }}
+                                                animate={{ pathLength: 1 }}
+                                                transition={{ duration: 0.3 }}
+                                            >
+                                                <motion.path d="M20 6L9 17l-5-5" />
+                                            </motion.svg>
+                                        </div>
+                                    </div>
+
+                                    {agentData.snippet && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="text-xs text-text-muted-zinc/70 bg-black/20 p-2 rounded-lg italic border-l-2 border-text-cream/10"
+                                        >
+                                            "{agentData.snippet}"
+                                        </motion.div>
+                                    )}
+                                </motion.div>
+                            );
+                        })}
                     </AnimatePresence>
                 </div>
             )}

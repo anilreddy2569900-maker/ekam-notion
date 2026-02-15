@@ -11,7 +11,7 @@ import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
 import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
-import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally } from './lib/ekam_api';
+import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally, transcribeAudio } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
 
@@ -42,6 +42,12 @@ const App: React.FC = () => {
   useEffect(() => {
     setBooted(true);
   }, []);
+
+  // Fix for Stale Closure in Chat Listener
+  const currentChatIdRef = React.useRef(currentChatId);
+  useEffect(() => {
+    currentChatIdRef.current = currentChatId;
+  }, [currentChatId]);
 
   // User Health Profile State
   const [userProfile, setUserProfile] = useState<Record<string, any> | null>(null);
@@ -177,9 +183,9 @@ const App: React.FC = () => {
       }));
       setChats(loadedChats);
 
-      if (loadedChats.length === 0 && !currentChatId) {
+      if (loadedChats.length === 0 && !currentChatIdRef.current) {
         // Avoid infinite loop by checking if we just tried to create one
-      } else if (loadedChats.length > 0 && !currentChatId) {
+      } else if (loadedChats.length > 0 && !currentChatIdRef.current) {
         setCurrentChatId(loadedChats[0].id);
       }
     });
@@ -474,7 +480,25 @@ const App: React.FC = () => {
     }
   };
 
-
+  const handleRecordEnd = async (audioBlob: Blob) => {
+    console.log('[App] handleRecordEnd triggered. Blob:', audioBlob);
+    setIsTyping(true);
+    try {
+      const text = await transcribeAudio(audioBlob);
+      console.log('[App] Transcription received:', text);
+      if (text) {
+        await handleSend(text);
+      } else {
+        // Handle empty transcription
+        console.warn("[App] Empty transcription received");
+      }
+    } catch (error) {
+      console.error("[App] Transcription failed", error);
+      // Optionally show toast
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   // 1. Loading State (Global)
   if (loading) {
@@ -554,6 +578,7 @@ const App: React.FC = () => {
                   />
                   <InputArea
                     onSend={handleSend}
+                    onRecordEnd={handleRecordEnd}
                     disabled={isTyping}
                   />
                 </main>

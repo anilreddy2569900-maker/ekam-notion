@@ -1,17 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Plus, X } from 'lucide-react';
+import { ArrowUp, Plus, X, Mic, Square } from 'lucide-react';
 
 interface InputAreaProps {
-    onSend: (text: string, file?: File) => void;
+    onSend: (text: string, file?: File) => Promise<void> | void;
+    onRecordEnd?: (audioBlob: Blob) => Promise<void>;
     disabled?: boolean;
 }
 
-export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
+export const InputArea: React.FC<InputAreaProps> = ({ onSend, onRecordEnd, disabled }) => {
     const [text, setText] = useState('');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isRecording, setIsRecording] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -38,12 +42,54 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleSend = () => {
+    const handleSend = async () => {
         if ((text.trim() || selectedFile) && !disabled) {
-            onSend(text, selectedFile || undefined); // Only pass text for now, file logic in parent
-            setText('');
-            clearImage();
-            if (textareaRef.current) textareaRef.current.style.height = 'auto';
+            try {
+                await onSend(text, selectedFile || undefined);
+                // Only clear if successful
+                setText('');
+                clearImage();
+                if (textareaRef.current) textareaRef.current.style.height = 'auto';
+            } catch (error) {
+                console.error("Failed to send message:", error);
+                // Ideally show a toast here, but for now we prevent clearing
+            }
+        }
+    };
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Chrome supports webm
+            mediaRecorderRef.current = mediaRecorder;
+            chunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunksRef.current.push(e.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+                console.log('[InputArea] Recording stopped. Blob size:', audioBlob.size, 'Type:', audioBlob.type);
+                if (onRecordEnd) {
+                    await onRecordEnd(audioBlob);
+                }
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error("Error accessing microphone:", err);
+            alert("Could not access microphone. Please allow permissions.");
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
         }
     };
 
@@ -68,7 +114,7 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileSelect}
-                        accept="image/*"
+                        accept="image/*,application/pdf"
                         className="hidden"
                     />
 
@@ -111,14 +157,25 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
                         />
                     </div>
 
-                    {/* Send Button */}
-                    <button
-                        onClick={handleSend}
-                        disabled={(!text.trim() && !selectedFile) || disabled}
-                        className={`p-2.5 rounded-full mb-0.5 transition-all duration-200 ${text.trim() || selectedFile ? 'bg-text-cream text-warm-charcoal hover:scale-105 active:scale-95 shadow-md' : 'bg-white/5 text-text-muted-zinc/30 cursor-not-allowed'}`}
-                    >
-                        <ArrowUp size={20} strokeWidth={3} />
-                    </button>
+                    {/* Send or Mic Button */}
+                    {text.trim() || selectedFile ? (
+                        <button
+                            onClick={handleSend}
+                            disabled={disabled}
+                            className={`p-2.5 rounded-full mb-0.5 transition-all duration-200 bg-text-cream text-warm-charcoal hover:scale-105 active:scale-95 shadow-md`}
+                        >
+                            <ArrowUp size={20} strokeWidth={3} />
+                        </button>
+                    ) : (
+                        <button
+                            onClick={isRecording ? stopRecording : startRecording}
+                            disabled={disabled}
+                            className={`p-2.5 rounded-full mb-0.5 transition-all duration-200 ${isRecording ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/5 text-text-muted-zinc hover:bg-white/10 hover:text-text-cream'}`}
+                            title={isRecording ? "Stop Recording" : "Record Audio"}
+                        >
+                            {isRecording ? <Square size={20} fill="currentColor" /> : <Mic size={20} />}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

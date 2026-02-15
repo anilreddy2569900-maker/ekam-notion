@@ -11,8 +11,8 @@ service firebase.storage {
       
       allow write: if request.auth != null 
                    && request.auth.uid == userId
-                   // 3. Max size 5MB
-                   && request.resource.size < 5 * 1024 * 1024
+                   // 3. Max size 50MB
+                   && request.resource.size < 50 * 1024 * 1024
                    // 4. Must be Image or PDF
                    && request.resource.contentType.matches('image/.*|application/pdf');
     }

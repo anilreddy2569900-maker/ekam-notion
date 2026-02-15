@@ -53,6 +53,7 @@ interface SwarmResult {
 // ============================================================================
 
 const processMessageFn = httpsCallable<SwarmRequest, SwarmResult>(functions, 'processMessage');
+const transcribeAudioFn = httpsCallable<{ audio: string; languageCode?: string }, { text: string; languageCode: string }>(functions, 'transcribeAudio');
 
 // ============================================================================
 // MAIN API FUNCTION
@@ -351,4 +352,44 @@ export async function extractMemory(text: string): Promise<ClinicalFact[]> {
         console.warn('[Ekam Memory] Extraction failed (non-critical):', error);
         return [];
     }
+}
+
+/**
+ * Transcribe audio using Google Cloud Speech-to-Text (Chirp) via Backend
+ */
+export async function transcribeAudio(audioBlob: Blob): Promise<string> {
+    console.log('[Ekam API] transcribeAudio called with blob size:', audioBlob.size, 'type:', audioBlob.type);
+    if (audioBlob.size < 100) {
+        console.warn('[Ekam API] Audio blob is too small, likely empty recording.');
+        return '';
+    }
+
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+            try {
+                const base64String = reader.result as string;
+                console.log('[Ekam API] Blob converted to base64. Length:', base64String.length);
+                const base64Audio = base64String.split(',')[1];
+
+                console.log('[Ekam API] Sending to backend function...');
+                const result = await transcribeAudioFn({ audio: base64Audio });
+                console.log('[Ekam API] Backend response:', result.data);
+
+                resolve(result.data.text);
+            } catch (error) {
+                console.error('[Ekam API] Transcription failed:', error);
+                // Log detailed error if available
+                if (typeof error === 'object' && error !== null) {
+                    console.error('[Ekam API] Error details:', JSON.stringify(error, null, 2));
+                }
+                reject(error);
+            }
+        };
+        reader.onerror = (error) => {
+            console.error('[Ekam API] FileReader error:', error);
+            reject(error);
+        };
+    });
 }

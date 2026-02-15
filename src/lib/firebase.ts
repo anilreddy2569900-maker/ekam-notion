@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { getFirestore, collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteField, serverTimestamp, limit, where, Timestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll } from "firebase/storage";
-import { getFunctions } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 import { getAnalytics } from "firebase/analytics";
 
@@ -34,3 +34,5 @@ export { collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc, getDocs
 // Re-export Storage functions for use in components
 export { ref, uploadBytes, getDownloadURL, deleteObject, listAll };
 
+// Re-export Functions
+export { httpsCallable };

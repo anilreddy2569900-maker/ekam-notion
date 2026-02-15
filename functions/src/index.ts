@@ -12,6 +12,7 @@ import { runSwarm } from './swarm/engine';
 import { extractClinicalFacts, MemoryExtractionResult } from './swarm/memory';
 import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
+import { transcribeAudio } from './transcribe';
 
 // Initialize Firebase Admin
 const app = initializeApp();
@@ -216,3 +217,5 @@ export const classifyQueryCallable = onCall<{ text: string }, Promise<RouterResu
         return await classifyQuery(text);
     }
 );
+
+export { transcribeAudio };

@@ -11,7 +11,7 @@ import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
 import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
-import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally, transcribeAudio } from './lib/ekam_api';
+import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
 
@@ -495,27 +495,6 @@ const App: React.FC = () => {
   };
 
 
-  const handleRecordEnd = async (audioBlob: Blob) => {
-    console.log('[App] handleRecordEnd triggered. Blob:', audioBlob);
-    setIsTyping(true);
-    try {
-      const text = await transcribeAudio(audioBlob);
-      console.log('[App] Transcription received:', text);
-      if (text) {
-        await handleSend(text);
-        // keep isTyping=true (handleSend background task will clear it)
-      } else {
-        // Handle empty transcription
-        console.warn("[App] Empty transcription received");
-        setIsTyping(false);
-      }
-    } catch (error) {
-      console.error("[App] Transcription failed", error);
-      // Optionally show toast
-      setIsTyping(false);
-    }
-  };
-
   // 1. Loading State (Global)
   if (loading) {
     return <div className="h-screen w-screen bg-warm-charcoal flex items-center justify-center text-text-muted-zinc">Loading...</div>;
@@ -594,7 +573,6 @@ const App: React.FC = () => {
                   />
                   <InputArea
                     onSend={handleSend}
-                    onRecordEnd={handleRecordEnd}
                     disabled={isTyping}
                   />
                 </main>

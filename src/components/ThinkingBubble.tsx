@@ -25,7 +25,7 @@ interface ThinkingBubbleProps {
 }
 
 export const ThinkingBubble: React.FC<ThinkingBubbleProps> = ({ agentNotes, isThinking = false }) => {
-    const [isExpanded, setIsExpanded] = useState(true);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     if (agentNotes.length === 0 && !isThinking) return null;
 

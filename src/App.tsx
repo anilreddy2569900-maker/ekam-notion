@@ -18,7 +18,7 @@ import { Login } from './components/Login';
 
 const App: React.FC = () => {
   console.log("App: Executing component...");
-  const { user, signInWithGoogle, loading } = useAuth();
+  const { user, signInWithGoogle, signInWithGoogleRedirect, loading } = useAuth();
 
   // App State
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
@@ -305,180 +305,195 @@ const App: React.FC = () => {
         createdAt: serverTimestamp()
       });
 
-      // Prepare History for Gemini (convert to API format)
-      const historyForApi: { role: "user" | "model"; parts: { text: string }[] }[] = messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
-      }));
+      // 3. BACKGROUND: Trigger AI Response (Fire & Forget from UI perspective)
+      // This allows the input input to clear immediately while AI thinks.
+      (async () => {
+        try {
+          // Prepare History for Gemini (convert to API format)
+          const historyForApi: { role: "user" | "model"; parts: { text: string }[] }[] = messages.map(m => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          }));
 
-      // ----------------------------------------------------------------------
-      // SEMANTIC ROUTER (GATEKEEPER)
-      // ----------------------------------------------------------------------
-      // Determine if this is a SIMPLE or COMPLEX query (instant, no network call)
-      const mode = classifyLocally(text);
-      console.log(`[App] Query routed to: ${mode} mode`);
+          // ----------------------------------------------------------------------
+          // SEMANTIC ROUTER (GATEKEEPER)
+          // ----------------------------------------------------------------------
+          // Determine if this is a SIMPLE or COMPLEX query (instant, no network call)
+          const mode = classifyLocally(text);
+          console.log(`[App] Query routed to: ${mode} mode`);
 
-      // Determine Agents — only for CRITICAL mode (skip agent routing for simple greetings)
-      let unsubThinking: (() => void) | null = null;
+          // Determine Agents — only for CRITICAL mode (skip agent routing for simple greetings)
+          let unsubThinking: (() => void) | null = null;
 
-      if (mode === 'CRITICAL') {
-        const selectedAgents = routeToAgents(text);
-        setActiveAgents(selectedAgents);
-        setLoadingPhase('gathering');
+          if (mode === 'CRITICAL') {
+            const selectedAgents = routeToAgents(text);
+            setActiveAgents(selectedAgents);
+            setLoadingPhase('gathering');
 
-        // Set up live thinking listener
-        const thinkingDocRef = doc(db, 'users', user.uid, 'chats', activeChatId, 'thinking', 'current');
-        unsubThinking = onSnapshot(thinkingDocRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            setThinkingProgress({
-              phase: data.phase,
-              agents: data.agents,
-              selectedAgents: data.selectedAgents
-            });
-          }
-        });
-      }
-
-      // ----------------------------------------------------------------------
-      // FLASH MEMORY (OBSERVER LAYER) - High-speed parallel execution
-      // ----------------------------------------------------------------------
-      // Only extract clinical memory for CRITICAL queries (skip for greetings/small talk)
-      if (mode === 'CRITICAL') {
-        extractMemory(text).then(async (facts) => {
-          if (facts && facts.length > 0) {
-            console.log('[App] Flash Memory captured:', facts);
-            const updates: Record<string, any> = {};
-
-            facts.forEach(f => {
-              const storageKey = f.category;
-              if (f.action === 'add' || f.action === 'update') {
-                updates[storageKey] = f.fact;
-              } else if (f.action === 'remove') {
-                updates[storageKey] = deleteField();
+            // Set up live thinking listener
+            const thinkingDocRef = doc(db, 'users', user.uid, 'chats', activeChatId, 'thinking', 'current');
+            unsubThinking = onSnapshot(thinkingDocRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const data = snapshot.data();
+                setThinkingProgress({
+                  phase: data.phase,
+                  agents: data.agents,
+                  selectedAgents: data.selectedAgents
+                });
               }
             });
+          }
 
-            if (Object.keys(updates).length > 0) {
-              // 1. Optimistic UI Update
+          // ----------------------------------------------------------------------
+          // FLASH MEMORY (OBSERVER LAYER) - High-speed parallel execution
+          // ----------------------------------------------------------------------
+          // Only extract clinical memory for CRITICAL queries (skip for greetings/small talk)
+          if (mode === 'CRITICAL') {
+            extractMemory(text).then(async (facts) => {
+              if (facts && facts.length > 0) {
+                console.log('[App] Flash Memory captured:', facts);
+                const updates: Record<string, any> = {};
+
+                facts.forEach(f => {
+                  const storageKey = f.category;
+                  if (f.action === 'add' || f.action === 'update') {
+                    updates[storageKey] = f.fact;
+                  } else if (f.action === 'remove') {
+                    updates[storageKey] = deleteField();
+                  }
+                });
+
+                if (Object.keys(updates).length > 0) {
+                  // 1. Optimistic UI Update
+                  setUserProfile(prev => ({ ...prev, ...updates }));
+
+                  // 2. Database Update (Fire & Forget)
+                  try {
+                    const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+                    await updateDoc(profileRef, updates);
+                  } catch (e) {
+                    console.error('[App] Flash Memory save failed:', e);
+                  }
+                }
+              }
+            });
+          }
+
+          // Send to Ekam Swarm Engine — SIMPLE mode skips heavy payload
+          const ekamResponsePromise = sendMessageToEkam(
+            text,
+            historyForApi,
+            imageUrl,
+            userProfile,
+            mode === 'CRITICAL' ? chatHistorySummary : undefined,
+            mode === 'CRITICAL' ? healthRecords : undefined,
+            location,
+            mode,
+            user.uid,
+            activeChatId
+          );
+
+          // Wait for main response (this only blocks this background function)
+          const ekamResponse = await ekamResponsePromise;
+
+          // Clean up thinking listener
+          if (unsubThinking) {
+            unsubThinking();
+            setThinkingProgress(null);
+          }
+
+          // CHECK FOR PROFILE UPDATES
+          // Format: ||PROFILE_UPDATE: {"skinType": "Oily", "conditions": "Acne detected"}||
+          const profileUpdateMatch = ekamResponse.text.match(/\|\|PROFILE_UPDATE:\s*(\{.*?\})\|\|/);
+          if (profileUpdateMatch && profileUpdateMatch[1]) {
+            try {
+              const updates = JSON.parse(profileUpdateMatch[1]);
+              console.log('[App] Applying AI Profile Updates:', updates);
+
+              const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+              await updateDoc(profileRef, updates);
+
+              // Refresh local state immediately
               setUserProfile(prev => ({ ...prev, ...updates }));
 
-              // 2. Database Update (Fire & Forget)
-              try {
-                const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-                await updateDoc(profileRef, updates);
-              } catch (e) {
-                console.error('[App] Flash Memory save failed:', e);
-              }
+              // Clean the hidden tag from the text before displaying
+              ekamResponse.text = ekamResponse.text.replace(profileUpdateMatch[0], '').trim();
+            } catch (e) {
+              console.error('[App] Failed to apply profile update:', e);
             }
           }
-        });
-      }
 
-      // Send to Ekam Swarm Engine — SIMPLE mode skips heavy payload
-      const ekamResponsePromise = sendMessageToEkam(
-        text,
-        historyForApi,
-        imageUrl,
-        userProfile,
-        mode === 'CRITICAL' ? chatHistorySummary : undefined,
-        mode === 'CRITICAL' ? healthRecords : undefined,
-        location,
-        mode,
-        user.uid,
-        activeChatId
-      );
-
-      // Wait for main response
-      const ekamResponse = await ekamResponsePromise;
-
-      // Clean up thinking listener
-      if (unsubThinking) {
-        unsubThinking();
-        setThinkingProgress(null);
-      }
-
-      // CHECK FOR PROFILE UPDATES
-      // Format: ||PROFILE_UPDATE: {"skinType": "Oily", "conditions": "Acne detected"}||
-      const profileUpdateMatch = ekamResponse.text.match(/\|\|PROFILE_UPDATE:\s*(\{.*?\})\|\|/);
-      if (profileUpdateMatch && profileUpdateMatch[1]) {
-        try {
-          const updates = JSON.parse(profileUpdateMatch[1]);
-          console.log('[App] Applying AI Profile Updates:', updates);
-
-          const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-          await updateDoc(profileRef, updates);
-
-          // Refresh local state immediately
-          setUserProfile(prev => ({ ...prev, ...updates }));
-
-          // Clean the hidden tag from the text before displaying
-          ekamResponse.text = ekamResponse.text.replace(profileUpdateMatch[0], '').trim();
-        } catch (e) {
-          console.error('[App] Failed to apply profile update:', e);
-        }
-      }
-
-      // ----------------------------------------------------------------------
-      // ANIMATION CONCLUSION
-      // ----------------------------------------------------------------------
-      if (mode === 'CRITICAL') {
-        setLoadingPhase('synthesizing');
-        await new Promise(resolve => setTimeout(resolve, 800)); // Brief visual transition
-      }
-
-      // Reset loading state
-      setLoadingPhase('done');
-      setActiveAgents([]);
-
-      // Log agent notes if council was used (for debugging, will be used in UI later)
-      if (ekamResponse.usedCouncil && ekamResponse.agentNotes) {
-        console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
-      }
-
-      // Add AI message to Firestore
-      await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-        role: 'ai',
-        content: ekamResponse.text,
-        createdAt: serverTimestamp(),
-        // Store agent notes for later retrieval if needed
-        ...(ekamResponse.agentNotes && { agentNotes: ekamResponse.agentNotes })
-      });
-
-      // Auto-generate chat title after first message
-      if (messages.length === 0 && activeChatId) {
-        // Generate title in background (don't block the response)
-        generateChatTitle(text).then(async (title) => {
-          try {
-            const chatRef = doc(db, 'users', user.uid, 'chats', activeChatId);
-            await updateDoc(chatRef, { title });
-            console.log('[App] Updated chat title to:', title);
-          } catch (e) {
-            console.error('[App] Failed to update chat title:', e);
+          // ----------------------------------------------------------------------
+          // ANIMATION CONCLUSION
+          // ----------------------------------------------------------------------
+          if (mode === 'CRITICAL') {
+            setLoadingPhase('synthesizing');
+            await new Promise(resolve => setTimeout(resolve, 800)); // Brief visual transition
           }
-        });
-      }
 
-    } catch (error) {
-      console.error("Error sending message:", error);
-      // Show error to user in chat
-      try {
-        if (activeChatId && user) {
+          // Reset loading state
+          setLoadingPhase('done');
+          setActiveAgents([]);
+
+          // Log agent notes if council was used (for debugging, will be used in UI later)
+          if (ekamResponse.usedCouncil && ekamResponse.agentNotes) {
+            console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
+          }
+
+          // Add AI message to Firestore
           await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
             role: 'ai',
-            content: "I'm sorry, I encountered a temporary issue. Please try sending your message again.",
-            createdAt: serverTimestamp()
+            content: ekamResponse.text,
+            createdAt: serverTimestamp(),
+            // Store agent notes for later retrieval if needed
+            ...(ekamResponse.agentNotes && { agentNotes: ekamResponse.agentNotes })
           });
+
+          // Auto-generate chat title after first message
+          if (messages.length === 0 && activeChatId) {
+            // Generate title in background (don't block the response)
+            generateChatTitle(text).then(async (title) => {
+              try {
+                const chatRef = doc(db, 'users', user.uid, 'chats', activeChatId);
+                await updateDoc(chatRef, { title });
+                console.log('[App] Updated chat title to:', title);
+              } catch (e) {
+                console.error('[App] Failed to update chat title:', e);
+              }
+            });
+          }
+
+        } catch (error) {
+          console.error("Error generating AI response:", error);
+          // Show error to user in chat
+          try {
+            if (activeChatId && user) {
+              await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+                role: 'ai',
+                content: "I'm sorry, I encountered a temporary issue. Please try sending your message again.",
+                createdAt: serverTimestamp()
+              });
+            }
+          } catch (e) {
+            console.error("Failed to write error message:", e);
+          }
+        } finally {
+          // Ensure UI resets even if error
+          setIsTyping(false);
+          setLoadingPhase('done');
+          setActiveAgents([]);
         }
-      } catch (e) {
-        console.error("Failed to write error message:", e);
-      }
-    } finally {
-      setIsTyping(false);
-      setLoadingPhase('done');
-      setActiveAgents([]);
+      })();
+      // END BACKGROUND TASK
+    } catch (error) {
+      console.error("Error sending user message:", error);
+      setIsTyping(false); // Only reset here if initial send failed
     }
+
+    // Function returns immediately after user message is added.
+    // InputArea will clear text now.
   };
+
 
   const handleRecordEnd = async (audioBlob: Blob) => {
     console.log('[App] handleRecordEnd triggered. Blob:', audioBlob);
@@ -488,14 +503,15 @@ const App: React.FC = () => {
       console.log('[App] Transcription received:', text);
       if (text) {
         await handleSend(text);
+        // keep isTyping=true (handleSend background task will clear it)
       } else {
         // Handle empty transcription
         console.warn("[App] Empty transcription received");
+        setIsTyping(false);
       }
     } catch (error) {
       console.error("[App] Transcription failed", error);
       // Optionally show toast
-    } finally {
       setIsTyping(false);
     }
   };
@@ -506,7 +522,7 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Login onLogin={signInWithGoogle} />;
+    return <Login onLogin={signInWithGoogle} onLoginRedirect={signInWithGoogleRedirect} />;
   }
 
   // 3. Authenticated but Checking Profile

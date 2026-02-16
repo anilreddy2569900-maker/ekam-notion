@@ -3,11 +3,14 @@ import { motion } from 'framer-motion';
 
 interface LoginProps {
     onLogin: () => Promise<void>;
+    onLoginRedirect: () => Promise<void>;
 }
 
-export const Login: React.FC<LoginProps> = ({ onLogin }) => {
+export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+
     const [error, setError] = useState<string | null>(null);
+    const [showRedirectLogin, setShowRedirectLogin] = useState(false);
 
     const handleLogin = async () => {
         setIsLoggingIn(true);
@@ -16,7 +19,14 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             await onLogin();
         } catch (err: any) {
             console.error("Login failed:", err);
-            setError("Failed to sign in. Please try again.");
+
+            // Check for popup blocked/closed error
+            if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed-by-user') || err.message?.includes('popup-blocked')) {
+                setError("Popup closed or blocked. Try the redirect method below.");
+                setShowRedirectLogin(true);
+            } else {
+                setError("Failed to sign in. Please try again.");
+            }
             setIsLoggingIn(false);
         }
     };
@@ -104,6 +114,22 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
                         </>
                     )}
                 </motion.button>
+
+                {showRedirectLogin && (
+                    <motion.button
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                            setError(null);
+                            onLoginRedirect();
+                        }}
+                        className="w-full mt-4 bg-white text-[#2D2520] font-medium py-3 px-6 rounded-2xl border border-[#2D2520]/20 hover:bg-gray-50 transition-all duration-300 flex items-center justify-center gap-2"
+                    >
+                        <span>Try Standard Login (Redirect)</span>
+                    </motion.button>
+                )}
 
                 <div className="mt-8 text-xs text-[#A1A1AA] font-light">
                     By continuing, you agree to our Terms and Privacy Policy.

@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type User } from "firebase/auth";
 import { getFirestore, collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteField, serverTimestamp, limit, where, Timestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -26,7 +26,7 @@ export const storage = getStorage(app);
 export const functions = getFunctions(app, 'us-central1');
 
 // Re-export Firebase Auth functions for use in AuthContext
-export { onAuthStateChanged, signInWithPopup, signOut, type User };
+export { onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type User };
 
 // Re-export Firestore functions for use in components
 export { collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc, getDocs, getDoc, setDoc, updateDoc, deleteField, serverTimestamp, limit, where, Timestamp };

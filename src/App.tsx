@@ -245,6 +245,7 @@ const App: React.FC = () => {
         id: doc.id,
         role: doc.data().role,
         content: doc.data().content,
+        imageUrl: doc.data().imageUrl,
         agentNotes: doc.data().agentNotes, // Include agent notes for ThinkingBubble
       }));
       setMessages(msgs);

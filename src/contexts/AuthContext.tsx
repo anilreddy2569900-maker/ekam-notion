@@ -25,68 +25,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     useEffect(() => {
         addLog("AuthContext: Effect running, setting up listener...");
-
         let isMounted = true;
-        let redirectCheckComplete = false;
-        let authStateCheckComplete = false;
 
-        const handleAuthCompletion = (user: User | null) => {
-            if (!isMounted) return;
-            // Only set loading to false if we have a user OR both checks are done
-            if (user) {
-                setUser(user);
-                setLoading(false);
-            } else if (redirectCheckComplete && authStateCheckComplete) {
-                setUser(null);
-                setLoading(false);
-            }
-        };
-
-        // 1. Check Redirect Result
+        // 1. Check Redirect Result (Just for logging/debugging or special handling)
         getRedirectResult(auth)
             .then((result) => {
                 if (!isMounted) return;
-                redirectCheckComplete = true;
                 if (result) {
                     addLog(`Redirect Success: User ${result.user.email}`);
-                    handleAuthCompletion(result.user);
+                    // Ensure state is updated (onAuthStateChanged will likely catch this too)
+                    setUser(result.user);
                 } else {
                     addLog("Redirect Result: No redirect info found.");
-                    handleAuthCompletion(null);
                 }
             })
             .catch((error) => {
                 if (!isMounted) return;
-                redirectCheckComplete = true;
                 addLog(`Redirect ERROR: ${error.code} - ${error.message}`);
-                handleAuthCompletion(null);
             });
 
-        // 2. Listen for Auth State Changes
+        // 2. Listen for Auth State Changes (The Source of Truth)
+        // Firebase guarantees this fires with the restored user if persistence is working.
         const unsubscribe = onAuthStateChanged(auth, (currentUser: any) => {
             if (!isMounted) return;
             addLog(`AuthStateChanged: ${currentUser ? 'User ' + currentUser.email : 'No User'}`);
-            
-            authStateCheckComplete = true;
-            handleAuthCompletion(currentUser);
-        });
 
-        // 3. Safety timeout
-        const safetyTimeout = setTimeout(() => {
-            if (isMounted) {
-                setLoading((current) => {
-                    if (current) {
-                        addLog("AuthContext: Safety timeout reached (10s). Forcing loading=false.");
-                        return false;
-                    }
-                    return current;
-                });
-            }
-        }, 10000);
+            setUser(currentUser);
+            setLoading(false); // Stop loading once we get the first auth state
+        });
 
         return () => {
             isMounted = false;
-            clearTimeout(safetyTimeout);
             unsubscribe();
         };
     }, []);

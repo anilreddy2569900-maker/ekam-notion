@@ -11,6 +11,7 @@ export interface Message {
     id: string;
     role: 'user' | 'ai';
     content: string;
+    imageUrl?: string | null;
     agentNotes?: { agent: string; note: string }[];
 }
 
@@ -120,6 +121,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
                             whileHover={{ scale: 1.005 }}
                             className="max-w-[85%] sm:max-w-[75%] bg-white/60 dark:bg-white/5 border border-text-cream/5 shadow-sm text-text-cream rounded-2xl rounded-tr-sm px-6 py-4 text-[16px] leading-relaxed backdrop-blur-sm"
                         >
+                            {msg.imageUrl && (
+                                <img
+                                    src={msg.imageUrl}
+                                    alt="User upload"
+                                    className="mb-3 max-w-full rounded-lg border border-text-cream/10 shadow-sm max-h-60 object-cover"
+                                />
+                            )}
                             {msg.content}
                         </motion.div>
                     ) : (

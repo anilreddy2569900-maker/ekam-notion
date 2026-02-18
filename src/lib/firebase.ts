@@ -6,15 +6,15 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 
 import { getAnalytics } from "firebase/analytics";
 
+// NEW CONFIG (ekam-8bf91)
 const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+    apiKey: "AIzaSyB3YAuFEpG7QVk_vZBEHPPkgF6y5q3unx8",
+    authDomain: "ekam-8bf91.firebaseapp.com",
+    projectId: "ekam-8bf91",
+    storageBucket: "ekam-8bf91.firebasestorage.app",
+    messagingSenderId: "504818444721",
+    appId: "1:504818444721:web:cae9c1c5fc6f8295183590",
+    measurementId: "G-ER3JYFF591"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -23,6 +23,8 @@ export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+// Functions location might need to be removed if new project is on Spark plan, 
+// but keeping us-central1 for now as standard.
 export const functions = getFunctions(app, 'us-central1');
 
 // Re-export Firebase Auth functions for use in AuthContext

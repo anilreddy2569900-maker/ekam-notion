@@ -2,7 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { SpeechClient } from '@google-cloud/speech';
 
 const speechClient = new SpeechClient({
-    projectId: 'project-health-de9dd'
+    projectId: 'ekam-8bf91'
 });
 
 interface TranscribeRequest {

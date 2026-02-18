@@ -138,12 +138,13 @@ const App: React.FC = () => {
         localStorage.setItem('ekam_onboarding_completed', 'true');
         console.log('[App] User profile updated:', docSnap.data());
       } else {
-        // Double check local storage to prevent loop
+        // Profile missing in Firestore
         const localCompleted = localStorage.getItem('ekam_onboarding_completed') === 'true';
         if (localCompleted) {
-          console.warn('[App] Profile missing in Firestore but exists locally. Waiting for sync...');
-          // Keep it null (loading) instead of false (onboarding) to give Firestore time to sync
-          setHasProfile(null);
+          console.warn('[App] Profile missing in Firestore but exists locally. Resetting local state (assuming data loss/sync issue).');
+          localStorage.removeItem('ekam_onboarding_completed');
+          setHasProfile(false); // Force onboarding
+          setUserProfile(null);
         } else {
           setHasProfile(false);
           setUserProfile(null);

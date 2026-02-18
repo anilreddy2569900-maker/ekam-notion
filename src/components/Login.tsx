@@ -22,10 +22,10 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
 
             // Check for popup blocked/closed error
             if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed-by-user') || err.message?.includes('popup-blocked')) {
-                setError("Popup closed or blocked. Try the redirect method below.");
+                setError("Popup failed (often due to browser privacy settings). Please use the Standard Login below.");
                 setShowRedirectLogin(true);
             } else {
-                setError("Failed to sign in. Please try again.");
+                setError(`Failed to sign in: ${err.message} (${err.code})`);
             }
             setIsLoggingIn(false);
         }
@@ -75,9 +75,19 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
                     <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
-                        className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-sm"
+                        className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-sm text-left"
                     >
-                        {error}
+                        <p className="font-bold mb-2">Login Failed</p>
+                        <p className="mb-2">{error}</p>
+                        <div className="mt-4 pt-4 border-t border-red-200 text-xs text-red-800">
+                            <p className="font-bold mb-1">Troubleshooting Tips:</p>
+                            <ul className="list-disc list-inside space-y-1">
+                                <li>Check if <strong>Google Sign-In</strong> is enabled in Firebase Console (Authentication &gt; Sign-in method).</li>
+                                <li>Ensure <strong>{window.location.hostname}</strong> is in <strong>Authorized Domains</strong> (Authentication &gt; Settings).</li>
+                                <li>Verify the <strong>API Key</strong> and <strong>Project ID</strong> in <code>src/lib/firebase.ts</code> match your project settings.</li>
+                                <li>If using an ad-blocker, try disabling it.</li>
+                            </ul>
+                        </div>
                     </motion.div>
                 )}
 
@@ -115,21 +125,20 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
                     )}
                 </motion.button>
 
-                {showRedirectLogin && (
-                    <motion.button
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                            setError(null);
-                            onLoginRedirect();
-                        }}
-                        className="w-full mt-4 bg-white text-[#2D2520] font-medium py-3 px-6 rounded-2xl border border-[#2D2520]/20 hover:bg-gray-50 transition-all duration-300 flex items-center justify-center gap-2"
-                    >
-                        <span>Try Standard Login (Redirect)</span>
-                    </motion.button>
-                )}
+                <motion.button
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                        setError(null);
+                        onLoginRedirect();
+                    }}
+                    className="w-full mt-4 bg-transparent text-[#6B5E54] text-sm font-medium py-2 px-6 hover:text-[#C4502A] transition-all duration-300 flex items-center justify-center gap-2"
+                >
+                    <span>Having trouble? Try Standard Login (Redirect)</span>
+                </motion.button>
 
                 <div className="mt-8 text-xs text-[#A1A1AA] font-light">
                     By continuing, you agree to our Terms and Privacy Policy.

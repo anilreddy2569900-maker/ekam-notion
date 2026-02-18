@@ -2,7 +2,7 @@ import { VertexAI, GenerativeModel } from '@google-cloud/vertexai';
 import { AI_CONFIG, ModelTier } from '../config/ai_config';
 
 // Project configuration
-const PROJECT_ID = 'project-health-de9dd';
+const PROJECT_ID = 'ekam-8bf91';
 
 // ============================================================================
 // DUAL CLIENT ARCHITECTURE (STRICT ENDPOINT ENFORCEMENT)

@@ -1,55 +1,54 @@
 {
-    "hosting":  {
-                    "site":  "project-health-de9dd",
-                    "public":  "dist",
-                    "ignore":  [
-                                   "firebase.json",
-                                   "**/.*",
-                                   "**/node_modules/**"
-                               ],
-                    "rewrites":  [
-                                     {
-                                         "source":  "**",
-                                         "destination":  "/index.html"
-                                     }
-                                 ],
-                    "headers":  [
-                                    {
-                                        "headers":  [
-                                                        {
-                                                            "key":  "Content-Security-Policy",
-                                                            "value":  "default-src \u0027self\u0027; script-src \u0027self\u0027 \u0027unsafe-inline\u0027 https://apis.google.com https://project-health-de9dd.firebaseapp.com; connect-src \u0027self\u0027 https://project-health-de9dd-default-rtdb.firebaseio.com https://firebasestorage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://us-central1-project-health-de9dd.cloudfunctions.net; img-src \u0027self\u0027 data: https://firebasestorage.googleapis.com; style-src \u0027self\u0027 \u0027unsafe-inline\u0027; font-src \u0027self\u0027 data:;"
-                                                        },
-                                                        {
-                                                            "key":  "Strict-Transport-Security",
-                                                            "value":  "max-age=31536000; includeSubDomains"
-                                                        },
-                                                        {
-                                                            "key":  "X-Content-Type-Options",
-                                                            "value":  "nosniff"
-                                                        },
-                                                        {
-                                                            "key":  "X-Frame-Options",
-                                                            "value":  "DENY"
-                                                        },
-                                                        {
-                                                            "key":  "Referrer-Policy",
-                                                            "value":  "strict-origin-when-cross-origin"
-                                                        }
-                                                    ],
-                                        "source":  "**"
-                                    }
-                                ]
-                },
-    "firestore":  {
-                      "rules":  "firestore.rules"
-                  },
-    "storage":  {
-                    "rules":  "storage.rules"
-                },
-    "functions":  {
-                      "source":  "functions",
-                      "runtime":  "nodejs20",
-                      "codebase":  "ekam-swarm"
-                  }
+    "hosting": {
+        "public": "dist",
+        "ignore": [
+            "firebase.json",
+            "**/.*",
+            "**/node_modules/**"
+        ],
+        "rewrites": [
+            {
+                "source": "**",
+                "destination": "/index.html"
+            }
+        ],
+        "headers": [
+            {
+                "headers": [
+                    {
+                        "key": "Content-Security-Policy",
+                        "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com https://ekam-8bf91.firebaseapp.com https://www.gstatic.com; connect-src 'self' https://ekam-8bf91-default-rtdb.firebaseio.com https://firebasestorage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://us-central1-ekam-8bf91.cloudfunctions.net https://*.googleapis.com; img-src 'self' data: https://firebasestorage.googleapis.com; style-src 'self' 'unsafe-inline' https://www.gstatic.com; font-src 'self' data: https://fonts.gstatic.com; frame-src 'self' https://*.firebaseapp.com https://*.google.com;"
+                    },
+                    {
+                        "key": "Strict-Transport-Security",
+                        "value": "max-age=31536000; includeSubDomains"
+                    },
+                    {
+                        "key": "X-Content-Type-Options",
+                        "value": "nosniff"
+                    },
+                    {
+                        "key": "X-Frame-Options",
+                        "value": "SAMEORIGIN"
+                    },
+                    {
+                        "key": "Referrer-Policy",
+                        "value": "strict-origin-when-cross-origin"
+                    }
+                ],
+                "source": "**"
+            }
+        ]
+    },
+    "firestore": {
+        "rules": "firestore.rules"
+    },
+    "storage": {
+        "rules": "storage.rules"
+    },
+    "functions": {
+        "source": "functions",
+        "runtime": "nodejs20",
+        "codebase": "ekam-swarm"
+    }
 }

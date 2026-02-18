@@ -2,7 +2,7 @@
  * EKAM SWARM ENGINE - Cloud Functions Entry Point
  * 
  * Firebase Cloud Functions with Vertex AI backend
- * Project: project-health-de9dd
+ * Project: ekam-8bf91
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
@@ -81,7 +81,7 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 }
             }
 
-            const bucketName = 'project-health-de9dd.firebasestorage.app'; // Production Bucket
+            const bucketName = 'ekam-8bf91.firebasestorage.app'; // Production Bucket
 
             // Process Attachments (Map storagePath -> gs:// URI)
             const attachments = request.data.attachments?.map(a => ({

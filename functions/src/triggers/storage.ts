@@ -35,7 +35,7 @@ export const onFileUpload = onObjectFinalized({
 
     try {
         // 2. Initialize Vertex AI (Direct Client)
-        const vertexAI = new VertexAI({ project: 'project-health-de9dd', location: 'us-central1' });
+        const vertexAI = new VertexAI({ project: 'ekam-8bf91', location: 'us-central1' });
         const model = vertexAI.getGenerativeModel({
             model: 'gemini-2.5-flash',
             generationConfig: {

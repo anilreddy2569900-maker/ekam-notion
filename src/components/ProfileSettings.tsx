@@ -14,6 +14,8 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    // Track the LAST SAVED phone number to control the "Linked" badge
+    const [savedPhoneNumber, setSavedPhoneNumber] = useState('');
 
     // Help Modal State
     const [helpModal, setHelpModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode }>({
@@ -33,6 +35,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         hairType: '',
         allergies: '',
         conditions: '',
+        phoneNumber: '',
     });
 
 
@@ -42,20 +45,44 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
     useEffect(() => {
         if (!user) return;
 
+        // Instant Load from Cache
+        const cachedStr = localStorage.getItem(`ekam_profile_${user.uid}`);
+        if (cachedStr) {
+            try {
+                const data = JSON.parse(cachedStr);
+                if (!isSaving) {
+                    setFormData(data as any);
+                    if (data.phoneNumber) setSavedPhoneNumber(data.phoneNumber);
+                }
+                setIsLoading(false); // Instantly stop loading
+            } catch (e) {
+                console.warn("Profile Cache corrupted", e);
+            }
+        }
+
         const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
 
         // Real-time listener
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
-                // Only update form data if we are NOT currently saving (avoid fighting with user input)
+                // Only update form data if we are NOT currently saving
                 if (!isSaving) {
-                    setFormData(docSnap.data() as any);
+                    const data = docSnap.data() as any;
+                    setFormData(data);
+                    // Sync saved state
+                    if (data.phoneNumber) setSavedPhoneNumber(data.phoneNumber);
+
+                    // Update cache silently
+                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
                 }
             }
             setIsLoading(false);
         }, (error) => {
             console.error("Error listening to profile:", error);
-            setIsLoading(false);
+            // If error but we have cache, we're good
+            if (!cachedStr) {
+                setIsLoading(false);
+            }
         });
 
         return () => unsubscribe();
@@ -66,24 +93,54 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
     };
 
     const handleSave = async () => {
-        if (!user) return;
+        if (!user) {
+            console.error("HandleSave: No user found");
+            return;
+        }
+        console.log("HandleSave: Starting save...", formData);
         setIsSaving(true);
         try {
-            await setDoc(doc(db, 'users', user.uid, 'profile', 'health_data'), {
+            const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+            console.log("HandleSave: Writing to", docRef.path);
+
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Save timed out after 10s. Check your connection.")), 10000)
+            );
+
+            // Race setDoc against timeout
+            await Promise.race([
+                setDoc(docRef, {
+                    ...formData,
+                    updatedAt: serverTimestamp(),
+                    onboardingCompleted: true
+                }, { merge: true }),
+                timeoutPromise
+            ]);
+
+            console.log("HandleSave: Write successful");
+
+            // Update Local Cache Immediately
+            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
                 ...formData,
-                updatedAt: serverTimestamp(),
-                onboardingCompleted: true // Ensure this stays true
-            }, { merge: true });
+                updatedAt: new Date().toISOString(),
+                onboardingCompleted: true
+            }));
 
             setShowSuccess(true);
             setTimeout(() => {
                 setShowSuccess(false);
                 onClose();
             }, 1500);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving profile:", error);
+            // alert(`Error saving: ${error.message || error}`); // Removed for production
         } finally {
+            console.log("HandleSave: Finally block reached");
             setIsSaving(false);
+            if ((formData as any).phoneNumber) {
+                setSavedPhoneNumber((formData as any).phoneNumber);
+            }
         }
     };
 
@@ -307,6 +364,42 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                     </div>
                 </section>
 
+                {/* Section 3.5: Account & Connections */}
+                <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">
+                    <h2 className="text-xl font-medium text-text-cream/90 flex items-center gap-2">
+                        Account & Connections
+                        <div className="h-px bg-white/10 flex-1 ml-4"></div>
+                    </h2>
+
+                    <div>
+                        <label className="block text-sm text-text-muted-zinc mb-2">WhatsApp Number</label>
+                        <div className="relative">
+                            <input
+                                type="tel"
+                                value={(formData as any).phoneNumber || ''}
+                                onChange={e => {
+                                    // Basic validation: Allow only numbers, spaces, +, -
+                                    const val = e.target.value;
+                                    if (/^[0-9+\- ]*$/.test(val)) {
+                                        updateData('phoneNumber', val);
+                                    }
+                                }}
+                                placeholder="+91 98765 43210"
+                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
+                            />
+                            {/* Linked Badge: Only if SAVED and MATCHES current input */}
+                            {savedPhoneNumber && savedPhoneNumber.length > 5 && savedPhoneNumber === (formData as any).phoneNumber && (
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-green-400 text-xs font-medium bg-green-400/10 px-2 py-1 rounded-full border border-green-400/20">
+                                    <Check size={12} /> Linked
+                                </div>
+                            )}
+                        </div>
+                        <p className="text-xs text-text-muted-zinc mt-2 opacity-70">
+                            Enter with <strong className="text-text-cream">Country Code</strong> (e.g. +91 or +1). This allows Ekam to recognize you on WhatsApp.
+                        </p>
+                    </div>
+                </section>
+
                 {/* Section 4: Agent Memory (Dynamic) */}
                 <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">
                     <div className="flex items-center justify-between">
@@ -323,7 +416,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
 
                     <div className="space-y-3">
                         {Object.entries(formData)
-                            .filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted'].includes(key))
+                            .filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted', 'phoneNumber'].includes(key))
                             .map(([key, value]) => (
                                 <div key={key} className="flex items-center gap-3 group">
                                     <div className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 flex items-center gap-4">
@@ -375,6 +468,69 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                                 <Plus size={16} /> Add Custom Memory
                             </button>
                         </div>
+                    </div>
+                </section>
+
+                {/* Section 4.5: Connect Bots */}
+                <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">
+                    <h2 className="text-xl font-medium text-text-cream/90 flex items-center gap-2">
+                        Connect AI Assistants
+                        <div className="h-px bg-white/10 flex-1 ml-4"></div>
+                    </h2>
+
+                    <div className="bg-surface-charcoal/50 rounded-xl p-4 border border-text-cream/5">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-accent-clay/10 rounded-lg text-accent-clay">
+                                <HelpCircle size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-text-cream font-medium text-sm">How to Connect</h3>
+                                <p className="text-text-muted-zinc text-xs mt-1 leading-relaxed">
+                                    To use Ekam on WhatsApp or Telegram, simply save your phone number below (with country code, e.g., +91).
+                                    Then click the buttons to start a chat!
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm text-text-muted-zinc mb-2">Phone Number (with Country Code)</label>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="tel"
+                                placeholder="+919999999999"
+                                value={formData.phoneNumber}
+                                onChange={e => updateData('phoneNumber', e.target.value)}
+                                className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
+                            />
+                            {savedPhoneNumber && savedPhoneNumber === formData.phoneNumber && (
+                                <span className="px-3 py-1 bg-green-500/10 text-green-400 text-xs rounded-full border border-green-500/20 flex items-center gap-1">
+                                    <Check size={12} /> Linked
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-text-muted-zinc mt-2 opacity-70">
+                            Enter with <strong className="text-text-cream">Country Code</strong> (e.g. +91 or +1). This allows Ekam to recognize you on WhatsApp.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <a
+                            href={`https://wa.me/15551735233?text=Hello`} // Correct Test Number
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-xl border border-[#25D366]/20 transition-all group"
+                        >
+                            <span>Chat on WhatsApp</span>
+                        </a>
+                        <a
+                            href="https://t.me/EkamHealth_Bot" // Correct Bot Username
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0088cc]/10 hover:bg-[#0088cc]/20 text-[#0088cc] rounded-xl border border-[#0088cc]/20 transition-all group"
+                        >
+                            <span>Chat on Telegram</span>
+                        </a>
                     </div>
                 </section>
 

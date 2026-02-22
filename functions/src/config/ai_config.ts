@@ -13,8 +13,8 @@ export type ModelTier = 'FLASH' | 'PRO';
 
 export const AI_CONFIG = {
     models: {
-        FLASH: 'gemini-3-flash-preview',
-        PRO: 'gemini-3-pro-preview',
+        FLASH: 'gemini-3.0-flash-preview',
+        PRO: 'gemini-3.1-pro-preview',
         LITE: 'gemini-2.0-flash-lite-preview-02-05'
     },
     location: {
@@ -27,7 +27,7 @@ export const AI_CONFIG = {
 export const AGENT_TIERS: Record<AgentKey, ModelTier> = {
     // TIER 1: SPEED (FLASH) — Lightweight agents
     environment: 'FLASH',
-    dermatologist: 'FLASH',
+    dermatologist: 'PRO',
 
     // TIER 2: REASONING (PRO) — Deep analysis agents
     orchestrator: 'PRO',

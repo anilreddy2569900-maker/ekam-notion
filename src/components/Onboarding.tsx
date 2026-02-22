@@ -52,8 +52,15 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 onboardingCompleted: true
             });
 
-            // Set local flag immediately to prevent onboarding loop on refresh
+            // Set local flags immediately to prevent onboarding loop on refresh
             localStorage.setItem('ekam_onboarding_completed', 'true');
+            // Cache the profile itself so App.tsx can load instantly
+            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
+                ...formData,
+                height: Number(formData.height) || 0,
+                weight: Number(formData.weight) || 0,
+                onboardingCompleted: true
+            }));
 
             // Small delay for UX
             setTimeout(() => {

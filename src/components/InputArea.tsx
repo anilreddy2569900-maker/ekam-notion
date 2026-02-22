@@ -40,15 +40,24 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
 
     const handleSend = async () => {
         if ((text.trim() || selectedFile) && !disabled) {
+            const currentText = text;
+            const currentFile = selectedFile;
+
+            // Optimistically clear the UI immediately
+            setText('');
+            clearImage();
+            if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
             try {
-                await onSend(text, selectedFile || undefined);
-                // Only clear if successful
-                setText('');
-                clearImage();
-                if (textareaRef.current) textareaRef.current.style.height = 'auto';
+                await onSend(currentText, currentFile || undefined);
             } catch (error) {
                 console.error("Failed to send message:", error);
-                // Ideally show a toast here, but for now we prevent clearing
+                // Restore text if the send completely failed (e.g. timeout)
+                setText(currentText);
+                if (currentFile) {
+                    setSelectedFile(currentFile);
+                    setPreviewUrl(URL.createObjectURL(currentFile));
+                }
             }
         }
     };

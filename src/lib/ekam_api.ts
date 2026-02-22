@@ -52,7 +52,7 @@ interface SwarmResult {
 // CALLABLE FUNCTIONS
 // ============================================================================
 
-const processMessageFn = httpsCallable<SwarmRequest, SwarmResult>(functions, 'processMessage');
+const processMessageFn = httpsCallable<SwarmRequest, SwarmResult>(functions, 'processMessage', { timeout: 300000 });
 const transcribeAudioFn = httpsCallable<{ audio: string; languageCode?: string }, { text: string; languageCode: string }>(functions, 'transcribeAudio');
 
 // ============================================================================

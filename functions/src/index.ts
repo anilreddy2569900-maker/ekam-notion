@@ -6,20 +6,31 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
+import './firebase'; // Ensures initialization runs FIRST
+import { db } from './firebase';
 import { runSwarm } from './swarm/engine';
 import { extractClinicalFacts, MemoryExtractionResult } from './swarm/memory';
 import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 import { transcribeAudio } from './transcribe';
 
-// Initialize Firebase Admin
-const app = initializeApp();
-const db = getFirestore(app);
+// Attachments Trigger
 // Attachments Trigger
 import { onFileUpload } from './triggers/storage';
-export { onFileUpload };
+// WhatsApp Trigger
+import { whatsappWebhook } from './whatsapp';
+
+// Telegram Trigger
+import { telegramWebhook } from './telegram';
+
+// Messaging Async Trigger
+import { onMessagingTrigger } from './triggers/messaging';
+
+// Summary Generation Function
+import { generateClinicalSummary } from './summary';
+
+export { onFileUpload, whatsappWebhook, telegramWebhook, onMessagingTrigger, generateClinicalSummary };
 
 /**
  * Main callable function for processing user messages
@@ -31,7 +42,7 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
         cors: true,
         region: 'us-central1',
         memory: '1GiB',
-        timeoutSeconds: 120,
+        timeoutSeconds: 300,
         maxInstances: 100,
         minInstances: 1,
     },

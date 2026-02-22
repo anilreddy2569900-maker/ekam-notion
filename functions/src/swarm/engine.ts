@@ -122,11 +122,11 @@ async function runAgent(
         });
     } else {
         // Use the Tiered Factory
-        // For PRO tier (Gemini 3 Pro), enforce LOW THINKING as requested
+        // For PRO tier, enforce thinking level if needed
         model = getGenerativeModel({
             systemInstruction,
             tier,
-            thinkingLevel: tier === 'PRO' ? 'low' : undefined
+            thinkingLevel: undefined // Default to undefined (let model factory decide - which defaults to 'high')
         });
     }
 
@@ -201,9 +201,7 @@ Limit to 1 question MAX.
         logger.info(`[Agent] Image attached for ${agentKey}`);
     }
 
-    // Add Multimodal Attachments (Vault Files)
-    // Only Agents with "High Visual Aptitude" should arguably get them, but Gemini 3 is efficient.
-    // We give access to ALL selected agents.
+    // Add Attachments (Smart Selection)
     if (attachments && attachments.length > 0) {
         attachments.forEach(file => {
             parts.push({
@@ -468,14 +466,29 @@ export async function runSwarm(
         contextString += `\n\n**Previous Conversation Context:**\n${chatHistorySummary}`;
     }
 
-    // 2. ROUTE TO AGENTS
-    const selectedAgents = routeToAgents(query);
-    logger.info(`[Swarm] Selected agents: ${selectedAgents.join(', ')}`);
+    // 2. ROUTING PHASE
+    if (onProgress) await onProgress({ phase: 'routing' });
+
+    // 2a. FILE ANALYSIS (If attachments exist)
+    let fileAnalysis = "";
+    if (attachments && attachments.length > 0) {
+        fileAnalysis = await analyzeFiles(attachments);
+    }
+
+    // Now using Async LLM Routing with Image Support AND File Context
+    const selectedAgents = await routeToAgents(query, imageBase64, imageMimeType, fileAnalysis);
+
+    logger.info(`[Engine] Routed to: ${selectedAgents.join(', ')}`);
 
     // Report routing progress
     const agentProgress: Record<string, { status: 'thinking' | 'done'; snippet?: string }> = {};
     selectedAgents.forEach(a => { agentProgress[a] = { status: 'thinking' }; });
-    await reportProgress({ phase: 'routing', selectedAgents, agents: { ...agentProgress } });
+
+    if (onProgress) await onProgress({
+        phase: 'routing',
+        selectedAgents,
+        agents: { ...agentProgress }
+    });
 
     // 3. RUN AGENTS IN PARALLEL (PHASE 1 - BRAINSTORM)
     logger.info('[Swarm] Starting Phase 1: Brainstorming...');
@@ -568,4 +581,41 @@ export async function runSwarm(
         consultations: [],
         usedCouncil: true // Always true for Critical Lane
     };
+}
+
+/**
+ * NEW: File Analyst - Summarizes files for the Router
+ */
+async function analyzeFiles(attachments: { fileUri: string; mimeType: string }[]): Promise<string> {
+    if (!attachments || attachments.length === 0) return "";
+
+    logger.info(`[Engine] Analyzing ${attachments.length} files for routing...`);
+
+    try {
+        const model = getGenerativeModel({
+            systemInstruction: "You are a Medical File Analyst. Summarize these documents in 1-2 sentences. Identify the TYPE (Lab Report, ECG, Prescription) and KEY ABNORMALITIES. Output ONLY the summary.",
+            tier: 'FLASH'
+        });
+
+        const parts: Part[] = [{ text: "Analyze these files:" }];
+        attachments.forEach(a => {
+            parts.push({ fileData: { fileUri: a.fileUri, mimeType: a.mimeType } });
+        });
+
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts }],
+            generationConfig: {
+                maxOutputTokens: 512,
+                temperature: 0.1,
+            }
+        });
+
+        const summary = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        logger.info(`[Engine] File Analysis: ${summary}`);
+        return summary;
+
+    } catch (e) {
+        logger.error('[Engine] File analysis failed:', e);
+        return "Contains medical attachments.";
+    }
 }

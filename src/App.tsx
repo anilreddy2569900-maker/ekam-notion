@@ -10,7 +10,7 @@ import { MedicalRepository } from './components/MedicalRepository';
 import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
-import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL } from './lib/firebase';
+import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL, setDoc } from './lib/firebase';
 import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
@@ -127,33 +127,61 @@ const App: React.FC = () => {
       return;
     }
 
+    // Attempt to load from cache IMMEDIATELY for zero-latency load
+    const cachedProfileStr = localStorage.getItem(`ekam_profile_${user.uid}`);
+    if (cachedProfileStr) {
+      try {
+        const cachedProfile = JSON.parse(cachedProfileStr);
+        setUserProfile(cachedProfile);
+        setHasProfile(true);
+        console.log('[App] Instantly loaded profile from local cache.');
+      } catch (e) {
+        console.warn('[App] Corrupted local profile cache, ignoring.');
+      }
+    }
+
     const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
 
     // Real-time listener for profile changes
-    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+    const unsubscribe = onSnapshot(profileRef, async (docSnap) => {
       if (docSnap.exists()) {
+        const data = docSnap.data();
         setHasProfile(true);
-        setUserProfile(docSnap.data()); // Store full profile for AI context
-        // Ensure local flag is set if we have a profile
+        setUserProfile(data); // Store full profile for AI context
+
+        // Cache to localStorage for instant load next time
+        localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
         localStorage.setItem('ekam_onboarding_completed', 'true');
-        console.log('[App] User profile updated:', docSnap.data());
+        console.log('[App] User profile synced from Firestore:', data);
       } else {
         // Profile missing in Firestore
-        const localCompleted = localStorage.getItem('ekam_onboarding_completed') === 'true';
-        if (localCompleted) {
-          console.warn('[App] Profile missing in Firestore but exists locally. Resetting local state (assuming data loss/sync issue).');
-          localStorage.removeItem('ekam_onboarding_completed');
-          setHasProfile(false); // Force onboarding
-          setUserProfile(null);
+        const cachedProfileStr = localStorage.getItem(`ekam_profile_${user.uid}`);
+        if (cachedProfileStr) {
+          console.warn('[App] Profile missing in Firestore but exists locally. AUTO-HEALING Firestore...');
+          try {
+            const cachedProfile = JSON.parse(cachedProfileStr);
+            await setDoc(profileRef, {
+              ...cachedProfile,
+              updatedAt: serverTimestamp() // Ensure timestamp is replaced
+            }, { merge: true });
+            console.log('[App] Successfully healed Firestore profile from local cache!');
+          } catch (healError) {
+            console.error('[App] Failed to auto-heal Firestore profile:', healError);
+          }
         } else {
+          // Genuinely no profile anywhere - Force Onboarding
+          localStorage.removeItem('ekam_onboarding_completed');
+          localStorage.removeItem(`ekam_profile_${user.uid}`);
           setHasProfile(false);
           setUserProfile(null);
         }
       }
     }, (error) => {
       console.error("Error listening to profile:", error);
-      // If error, trust local storage to avoid blocking user
-      if (localStorage.getItem('ekam_onboarding_completed') === 'true') {
+      // Trust local cache if network/permission fails
+      if (localStorage.getItem(`ekam_profile_${user.uid}`)) {
+        setHasProfile(true);
+      } else if (localStorage.getItem('ekam_onboarding_completed') === 'true') {
         setHasProfile(true);
       } else {
         setHasProfile(false);
@@ -299,13 +327,20 @@ const App: React.FC = () => {
         imageUrl = await uploadImageToFirebase(file);
       }
 
-      // Add user message to Firestore — must await to ensure message appears before continuing
-      await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-        role: 'user',
-        content: text,
-        imageUrl: imageUrl || null,
-        createdAt: serverTimestamp()
-      });
+      // Add user message to Firestore — wrapped in a timeout to prevent infinite hanging
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Network timeout: Could not save message to database.")), 8000)
+      );
+
+      await Promise.race([
+        addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+          role: 'user',
+          content: text,
+          imageUrl: imageUrl || null,
+          createdAt: serverTimestamp()
+        }),
+        timeoutPromise
+      ]);
 
       // 3. BACKGROUND: Trigger AI Response (Fire & Forget from UI perspective)
       // This allows the input input to clear immediately while AI thinks.
@@ -442,14 +477,18 @@ const App: React.FC = () => {
             console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
           }
 
-          // Add AI message to Firestore
-          await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-            role: 'ai',
-            content: ekamResponse.text,
-            createdAt: serverTimestamp(),
-            // Store agent notes for later retrieval if needed
-            ...(ekamResponse.agentNotes && { agentNotes: ekamResponse.agentNotes })
-          });
+          // Add AI message to Firestore - with timeout
+          const aiTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout saving AI message")), 8000));
+          await Promise.race([
+            addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+              role: 'ai',
+              content: ekamResponse.text,
+              createdAt: serverTimestamp(),
+              // Store agent notes for later retrieval if needed
+              ...(ekamResponse.agentNotes && { agentNotes: ekamResponse.agentNotes })
+            }),
+            aiTimeoutPromise
+          ]);
 
           // Auto-generate chat title after first message
           if (messages.length === 0 && activeChatId) {
@@ -470,11 +509,15 @@ const App: React.FC = () => {
           // Show error to user in chat
           try {
             if (activeChatId && user) {
-              await addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-                role: 'ai',
-                content: "I'm sorry, I encountered a temporary issue. Please try sending your message again.",
-                createdAt: serverTimestamp()
-              });
+              const errTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout saving error message")), 5000));
+              await Promise.race([
+                addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
+                  role: 'ai',
+                  content: "I'm sorry, I encountered a temporary network issue. Please try sending your message again.",
+                  createdAt: serverTimestamp()
+                }),
+                errTimeoutPromise
+              ]);
             }
           } catch (e) {
             console.error("Failed to write error message:", e);

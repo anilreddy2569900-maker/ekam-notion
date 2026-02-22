@@ -75,31 +75,113 @@ export async function classifyQuery(text: string): Promise<RouterResult> {
 }
 
 /**
- * Routes the query to the appropriate specialists
+ * Routes the query to the appropriate specialists using LLM reasoning
+ * Tier: LITE (Fast & Cost Effective)
  */
-export function routeToAgents(query: string): AgentKey[] {
+export async function routeToAgents(query: string, imageBase64?: string, imageMimeType?: string, fileContext?: string): Promise<AgentKey[]> {
     const q = query.toLowerCase();
-    const agents: Set<AgentKey> = new Set();
 
-    // Always include Environment for context (it's cheap/fast)
-    agents.add('environment');
-
-    // Simple keyword mapping (Fast & Deterministic)
-    // In a future update, this could be an LLM call, but regex is faster for now
-
-    if (/(heart|cardio|chest|pulse|bp|blood pressure)/.test(q)) agents.add('vitalist');
-    if (/(skin|rash|itch|derm|hair|face)/.test(q)) agents.add('dermatologist');
-    if (/(sleep|insomnia|tired|fatigue|energy|mood|stress|anxiety)/.test(q)) agents.add('neuro');
-    if (/(stomach|gut|digest|eat|food|diet|weight|bloat)/.test(q)) agents.add('metabolic');
-    if (/(hormone|thyroid|sugar|diabetes|period|cycle)/.test(q)) agents.add('endocrine');
-
-    // Default to Vitalist (General GP) if no specific match
-    if (agents.size === 1) { // Only environment
-        agents.add('vitalist');
+    // 1. FAST PATH: Simple Greetings / Small Talk -> Just Orchestrator
+    // Only if NO IMAGE and NO FILE CONTEXT
+    if (!imageBase64 && !fileContext && /^(hi|hello|hey|greetings|good morning|good evening)$/.test(q)) {
+        return ['orchestrator', 'environment']; // Env always included for context
     }
 
-    // Agent "Guardian" is implicit in the Orchestrator's safety check, so we don't explicitly route to it 
-    // unless strictly needed, but for now let's keep it simple.
+    // 2. INTELLIGENT ROUTING: Use Gemini Flash Lite
+    const systemInstruction = `
+    You are the **Chief Medical Dispatcher** for Ekam Health.
+    Your Goal: Select the **exact set of specialists** required to fully address the user's query and any attached image or file.
 
-    return Array.from(agents);
+    ### RULES:
+    1. **Precision:** Select ONLY the agents whose domain is RELEVANT to the query, image, or file content.
+    2. **No Limits:** 
+       - If the query/image/file is simple (e.g., "My knee hurts"), select **1 agent** (Somatic).
+       - If complex, select **ALL relevant agents**.
+       - If it affects everything, use **ALL 8**.
+    3. **Context:** 'Environment' agent is auto-included, do not list it.
+
+    ### VISUAL ANALYSIS (If Image/File Provided):
+    - **Skin/Rash/Nail/Hair:** -> **dermatologist** (Primary)
+    - **Swollen Joint/Posture/Injury:** -> **somatic**
+    - **Visible Thyroid (Goiter)/Eyes:** -> **endocrine**
+    - **Report/Lab Result:** -> **guardian** + relevant specialist (e.g. Lipid Profile -> Metabolic, ECG -> Vitalist)
+    - **Food/Meal:** -> **metabolic**
+
+    ### AGENT ROSTER:
+    - **vitalist**: Heart, Blood Pressure, Circulation, Stamina.
+    - **dermatologist**: Skin, Hair, Nails, Rashes.
+    - **metabolic**: Digestion, Diet, Weight, Gut Health, Bloating, Energy (fuel).
+    - **somatic**: Muscles, Joints, Pain, Posture, Movement, Injury.
+    - **neuro**: Brain, Sleep, Stress, Anxiety, Headache, Focus, Mood.
+    - **endocrine**: Hormones, Thyroid, Period/Menstrual, Diabetes, Temperature regulation.
+    - **guardian**: **SAFETY FIRST**. Use this if the user mentions ANY "Red Flag" or if the image/file looks serious.
+
+    ### INPUT:
+    Query: "${query}"
+    Image: ${imageBase64 ? "Yes" : "No"}
+    File Context: "${fileContext || "None"}"
+
+    ### OUTPUT:
+    Return JSON ONLY: { "agents": ["agent1", "agent2"] }
+    `;
+
+    try {
+        const model = getGenerativeModel({
+            systemInstruction,
+            tier: 'LITE' as any, // Flash Lite
+            model: 'gemini-2.0-flash-lite-preview-02-05'
+        });
+
+        const contents = [{ role: 'user', parts: [] as any[] }];
+        contents[0].parts.push({ text: `Query: ${query || "Check attachment"}\nFile Analysis: ${fileContext || "No files analyzed."}` });
+
+        if (imageBase64 && imageMimeType) {
+            contents[0].parts.push({
+                inlineData: {
+                    data: imageBase64,
+                    mimeType: imageMimeType
+                }
+            });
+        }
+
+        const result = await model.generateContent({
+            contents,
+            generationConfig: {
+                maxOutputTokens: 100,
+                temperature: 0.0, // Strict deterministic
+                responseMimeType: 'application/json'
+            }
+        });
+
+        const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!responseText) throw new Error("Empty response from Router");
+
+        const parsed = JSON.parse(responseText);
+        let selectedAgents: AgentKey[] = parsed.agents || [];
+
+        // Validate agents
+        const validAgents = new Set<AgentKey>(['vitalist', 'dermatologist', 'metabolic', 'somatic', 'neuro', 'endocrine', 'guardian']);
+        selectedAgents = selectedAgents.filter(a => validAgents.has(a));
+
+        // ALWAYS include Environment (Context) and Orchestrator (Manager)
+        if (!selectedAgents.includes('environment')) selectedAgents.push('environment');
+
+        // FALLBACK: If LLM returns nothing but query was not empty, default to Guardian (Safety)
+        if (selectedAgents.length <= 1) { // Only env
+            logger.warn('[Router] LLM returned no agents. Defaulting to Guardian.');
+            selectedAgents.push('guardian');
+            // If image is present and failed, add dermatologist as safe bet for visual queries
+            if (imageBase64) selectedAgents.push('dermatologist');
+        }
+
+        return selectedAgents;
+
+    } catch (error) {
+        logger.error('[Router] LLM Routing failed, using fallback:', error);
+        // CRITICAL FALLBACK (Regex or safe default)
+        const fallbackAgents: AgentKey[] = ['environment', 'guardian']; // Safety first
+        if (/(skin|hair|face)/.test(q) || imageBase64) fallbackAgents.push('dermatologist'); // Assume image = derm in worst case
+        if (/(heart|chest)/.test(q)) fallbackAgents.push('vitalist');
+        return fallbackAgents;
+    }
 }

@@ -16,7 +16,9 @@ import {
     serverTimestamp,
     deleteDoc,
     doc,
-    deleteObject
+    deleteObject,
+    functions,
+    httpsCallable
 } from '../lib/firebase';
 
 interface MedicalRepositoryProps {
@@ -37,6 +39,7 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
     const { user } = useAuth();
     const [files, setFiles] = useState<VaultFile[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
     const [dragActive, setDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -163,6 +166,20 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
         });
     };
 
+    const handleGenerateSummary = async () => {
+        setIsGeneratingSummary(true);
+        try {
+            const generateClinicalSummary = httpsCallable(functions, 'generateClinicalSummary');
+            await generateClinicalSummary();
+            // The snapshot listener will automatically fetch the new file when it is written and show it in the list
+        } catch (error) {
+            console.error("Failed to generate summary:", error);
+            alert("Failed to generate summary. Please try again.");
+        } finally {
+            setIsGeneratingSummary(false);
+        }
+    };
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -172,7 +189,7 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
         >
             <div className="max-w-4xl mx-auto w-full p-6 pb-24 space-y-8">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={onClose}
@@ -186,6 +203,20 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
                             <p className="text-text-muted-zinc mt-1">Secure storage for your health records.</p>
                         </div>
                     </div>
+                    <button
+                        onClick={handleGenerateSummary}
+                        disabled={isGeneratingSummary}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-accent-clay hover:bg-accent-clay/90 disabled:opacity-50 disabled:cursor-not-allowed text-background-dark font-medium rounded-xl transition-all shadow-md shrink-0 focus:outline-none focus:ring-2 focus:ring-accent-clay focus:ring-offset-2 focus:ring-offset-background-dark"
+                    >
+                        {isGeneratingSummary ? (
+                            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
+                                <Upload size={18} />
+                            </motion.div>
+                        ) : (
+                            <FileText size={18} />
+                        )}
+                        {isGeneratingSummary ? 'Generating Summary...' : 'Generate Doctor Summary'}
+                    </button>
                 </div>
 
                 {/* Upload Drop Zone */}

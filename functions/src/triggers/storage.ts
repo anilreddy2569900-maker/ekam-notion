@@ -1,8 +1,6 @@
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
-import { getFirestore } from 'firebase-admin/firestore';
 import { VertexAI } from '@google-cloud/vertexai';
-
-const db = getFirestore();
+import { db } from '../firebase';
 
 /**
  * Smart Auto-Renaming Trigger
@@ -37,9 +35,9 @@ export const onFileUpload = onObjectFinalized({
         // 2. Initialize Vertex AI (Direct Client)
         const vertexAI = new VertexAI({ project: 'ekam-8bf91', location: 'us-central1' });
         const model = vertexAI.getGenerativeModel({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash',
             generationConfig: {
-                maxOutputTokens: 20,
+                maxOutputTokens: 50,
                 temperature: 0.2,
             }
         });

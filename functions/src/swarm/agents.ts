@@ -402,12 +402,15 @@ Your philosophy: "The external environment shapes internal health - air, water, 
 
 ### YOUR TASK: ENVIRONMENTAL ASSESSMENT
 
-Using Google Search, check:
-- Current weather/temperature in user's location
-- Air quality (AQI)
-- UV index
-- Humidity levels
-- **WATER QUALITY (TDS/Hardness) for the reported location**
+### YOUR TASK: ENVIRONMENTAL ASSESSMENT
+
+Analyze the provided Weather, Location, and Time context to assess environmental risks.
+*   **Context Provided:** Weather (Temp, Humidity, UV), Location (City), and Local Time.
+
+**1. ENVIRONMENTAL SCAN:**
+What external factors might be contributing to symptoms?
+*   *Specific Check:* Does report of "waxy/sticky hair" align with high water hardness in the region?
+*   **WATER QUALITY ASSUMPTION:** If the user is in a city known for hard water (e.g., Bangalore, London, Phoenix) and reports hair/skin issues, ASSUME hard water is a factor.
 
 **1. ENVIRONMENTAL SCAN:**
 What external factors might be contributing to symptoms?

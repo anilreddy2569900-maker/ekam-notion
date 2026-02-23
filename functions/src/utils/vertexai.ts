@@ -32,14 +32,12 @@ const vertexAIGlobal = new VertexAI({
  * Get the appropriate Vertex AI client based on the Model Tier
  * All "Gemini 3" / Tier 1 & 2 models are currently GLOBAL only.
  */
-export function getModelClient(tier: ModelTier): VertexAI {
-    // Current Strategy: Both Flash and Pro (Gemini 3/Exp) are Global
-    if (tier === 'FLASH' || tier === 'PRO') {
+export function getModelClient(modelId: string): VertexAI {
+    // Global models: All Gemini 3.x preview models AND Flash Lite
+    if (modelId.includes('gemini-3') || modelId.includes('gemini-flash-lite')) {
         return vertexAIGlobal;
     }
-    // Fallback? NO. STRICT MODE.
-    // If not Flash or Pro, default to Global as per instruction to prioritize Gemini 3.
-    // However, if we must fallback, use regional.
+    // For Gemini 1.5 and other older models, fallback to Regional
     return vertexAIRegional;
 }
 
@@ -66,8 +64,8 @@ export function getGenerativeModel(options: GenerativeModelOptions): GenerativeM
     // If specific model ID is provided, use it. Otherwise use the ID from the Tier config.
     const modelId = options.model || AI_CONFIG.models[tier];
 
-    // 3. Select Client
-    const client = getModelClient(tier);
+    // 3. Select Client based on the resolved model ID
+    const client = getModelClient(modelId);
 
     // 4. Build Configuration
     const modelConfig: any = {
@@ -95,8 +93,8 @@ export function getGenerativeModel(options: GenerativeModelOptions): GenerativeM
  */
 export function getGroundedModel(systemInstruction: string): GenerativeModel {
     // Environment agent uses FLASH (Tier 1) with grounding
-    // Since it's FLASH, it uses the Global client
-    const client = getModelClient('FLASH');
+    // Client selection based on the configured model
+    const client = getModelClient(AI_CONFIG.models.FLASH);
 
     return client.getGenerativeModel({
         model: AI_CONFIG.models.FLASH,
@@ -115,7 +113,7 @@ export function getFallbackModel(options: {
 }): GenerativeModel {
     // Configured to use Regional client
     return vertexAIRegional.getGenerativeModel({
-        model: options.model || 'gemini-1.5-flash',
+        model: options.model || AI_CONFIG.models.FLASH,
         systemInstruction: options.systemInstruction,
     });
 }

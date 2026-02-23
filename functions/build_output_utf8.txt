@@ -1,0 +1,8 @@
+﻿
+> ekam-swarm-functions@1.0.0 build
+> tsc
+
+src/utils/weather.ts(73,28): error TS1127: Invalid character.
+src/utils/weather.ts(73,29): error TS1134: Variable declaration expected.
+src/utils/weather.ts(166,1): error TS1005: '}' expected.
+src/utils/weather.ts(166,1): error TS1160: Unterminated template literal.

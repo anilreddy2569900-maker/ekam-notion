@@ -1,12 +1,9 @@
-
 /**
- * WeatherAPI.com Integration
+ * Weather Context Integration (Free APIs)
  * 
- * Fetches real-time weather data for the Environmental Agent.
+ * Fetches real-time weather, AQI, and location data for the Environmental Agent.
+ * Replaces WeatherAPI.com with Open-Meteo and BigDataCloud (No API keys required).
  */
-
-const WEATHER_API_KEY = '5fd051d625454ade86985011260702';
-const BASE_URL = 'http://api.weatherapi.com/v1';
 
 export interface WeatherData {
     location: {
@@ -26,7 +23,7 @@ export interface WeatherData {
         feelslike_c: number;
         uv: number;
         air_quality?: {
-            co: number;
+            co: number; // Sticking to interface, though we only fetch PM2.5 and US EPA from OpenMeteo
             no2: number;
             o3: number;
             so2: number;
@@ -38,26 +35,107 @@ export interface WeatherData {
     };
 }
 
+// Map WMO Weather codes from Open-Meteo to readable text
+function getWmoConditionText(code: number): string {
+    const wmoCodes: Record<number, string> = {
+        0: 'Clear sky',
+        1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog',
+        51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+        56: 'Light freezing drizzle', 57: 'Dense freezing drizzle',
+        61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+        66: 'Light freezing rain', 67: 'Heavy freezing rain',
+        71: 'Slight snow fall', 73: 'Moderate snow fall', 75: 'Heavy snow fall',
+        77: 'Snow grains',
+        80: 'Slight rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+        85: 'Slight snow showers', 86: 'Heavy snow showers',
+        95: 'Thunderstorm', 96: 'Thunderstorm with slight hail', 99: 'Thunderstorm with heavy hail'
+    };
+    return wmoCodes[code] || 'Unknown';
+}
+
 /**
- * Fetch current weather and air quality for a given location (lat,lng or city name)
+ * Fetch current weather, air quality, and reverse-geocoded location
+ * @param query String in format "lat,lng"
  */
 export async function getCurrentWeather(query: string): Promise<WeatherData | null> {
     try {
-        // Include AQI=yes to get air quality data
-        const url = `${BASE_URL}/current.json?key=${WEATHER_API_KEY}&q=${encodeURIComponent(query)}&aqi=yes`;
+        const [latStr, lngStr] = query.split(',');
+        const lat = parseFloat(latStr);
+        const lng = parseFloat(lngStr);
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            console.error(`[WeatherAPI] Error fetching weather: ${response.status} ${response.statusText}`);
+        if (isNaN(lat) || isNaN(lng)) {
+            console.error('[Weather] Invalid latitude/longitude query:', query);
             return null;
         }
 
-        const data = await response.json();
-        return data as WeatherData;
+        // 1. Fetch Weather (Open-Meteo)
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index&timezone=auto`;
+
+        // 2. Fetch Air Quality (Open-Meteo)
+        const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,us_aqi,european_aqi&timezone=auto`;
+
+        // 3. Fetch Location Data (BigDataCloud Free Reverse Geocoding)
+        const locationUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+
+        // Run fetch requests in parallel
+        const [weatherRes, aqiRes, locationRes] = await Promise.all([
+            fetch(weatherUrl),
+            fetch(aqiUrl),
+            fetch(locationUrl)
+        ]);
+
+        if (!weatherRes.ok || !aqiRes.ok || !locationRes.ok) {
+            console.error(`[Weather] APIs Error: W:${weatherRes.status}, A:${aqiRes.status}, L:${locationRes.status}`);
+            return null;
+        }
+
+        const weatherData = await weatherRes.json();
+        const aqiData = await aqiRes.json();
+        const locationData = await locationRes.json();
+
+        // Extract and map data
+        const currentW = weatherData.current;
+        const currentA = aqiData.current;
+
+        // Calculate Fahrenheit
+        const tempC = currentW.temperature_2m;
+        const tempF = (tempC * 9 / 5) + 32;
+
+        const data: WeatherData = {
+            location: {
+                name: locationData.city || locationData.locality || "Unknown City",
+                region: locationData.principalSubdivision || "",
+                country: locationData.countryName || "Unknown Country",
+                localtime: currentW.time || new Date().toISOString()
+            },
+            current: {
+                temp_c: tempC,
+                temp_f: parseFloat(tempF.toFixed(1)),
+                condition: {
+                    text: getWmoConditionText(currentW.weather_code)
+                },
+                wind_kph: currentW.wind_speed_10m,
+                humidity: currentW.relative_humidity_2m,
+                feelslike_c: currentW.apparent_temperature,
+                uv: currentW.uv_index || 0,
+                air_quality: {
+                    co: currentA.carbon_monoxide || 0,
+                    no2: currentA.nitrogen_dioxide || 0,
+                    o3: currentA.ozone || 0,
+                    so2: currentA.sulphur_dioxide || 0,
+                    pm2_5: currentA.pm2_5 || 0,
+                    pm10: currentA.pm10 || 0,
+                    "us-epa-index": currentA.us_aqi || 0,
+                    "gb-defra-index": currentA.european_aqi || 0
+                }
+            }
+        };
+
+        return data;
 
     } catch (error) {
-        console.error('[WeatherAPI] Network error:', error);
+        console.error('[Weather] Network error or parsing failed:', error);
         return null;
     }
 }
@@ -70,7 +148,7 @@ export function formatWeatherForContext(data: WeatherData | null): string {
 
     const { location, current } = data;
     const aqi = current.air_quality ?
-        `PM2.5: ${current.air_quality.pm2_5.toFixed(1)}, US EPA Index: ${current.air_quality["us-epa-index"]}` :
+        `PM2.5: ${current.air_quality.pm2_5.toFixed(1)}, US Index: ${current.air_quality["us-epa-index"]}` :
         "Data unavailable";
 
     return `

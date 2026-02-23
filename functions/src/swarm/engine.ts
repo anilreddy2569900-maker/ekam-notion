@@ -7,11 +7,11 @@
 
 import { GenerativeModel, GenerateContentRequest, GenerateContentResult, Part } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel, getFallbackModel } from '../utils/vertexai';
+import { getGenerativeModel } from '../utils/vertexai';
 import { getCurrentWeather, formatWeatherForContext } from '../utils/weather';
 import { AGENT_TIERS, AI_CONFIG } from '../config/ai_config';
 import { AGENT_PROMPTS } from './agents';
-import { routeToAgents } from './router';
+import { classifyAndRoute } from './router';
 import {
     AgentKey,
     AgentResult,
@@ -32,12 +32,24 @@ export type ProgressCallback = (update: {
 /**
  * Format user profile into a context string for agents
  */
-function formatProfileContext(profile?: UserProfile): string {
+export function formatProfileContext(profile?: UserProfile): string {
     if (!profile) return '';
 
     const parts: string[] = [];
     if (profile.gender) parts.push(`Gender: ${profile.gender}`);
-    if (profile.dateOfBirth) parts.push(`Date of Birth: ${profile.dateOfBirth}`);
+    if (profile.age) {
+        parts.push(`Age: ${profile.age}`);
+    } else if (profile.dateOfBirth) {
+        parts.push(`Date of Birth: ${profile.dateOfBirth}`);
+        // Calculate age dynamically if not explicitly provided
+        const dob = new Date(profile.dateOfBirth);
+        if (!isNaN(dob.getTime())) {
+            const diffMs = Date.now() - dob.getTime();
+            const ageDate = new Date(diffMs);
+            const calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970);
+            parts.push(`Calculated Age: ${calculatedAge}`);
+        }
+    }
     if (profile.height) parts.push(`Height: ${profile.height}cm`);
     if (profile.weight) parts.push(`Weight: ${profile.weight}kg`);
     if (profile.diet) parts.push(`Diet: ${profile.diet}`);
@@ -171,7 +183,7 @@ ${peerContext ? '(REFINED BASED ON COLLEAGUE INPUT)' : ''}
 Carefully identify ALL relevant symptoms, patterns, and clues.
 
 ### STEP 2 - ACTIONABLE INSIGHTS (VALUE FIRST)
-Based on what you see, what is the user's "Hidden Story"?
+Based on what you see, what is the underlying issue or root cause?
 What should they DO right now? Provide specific advice.
 
 ### STEP 3 - CROSS-DOMAIN CONNECTIONS
@@ -237,11 +249,11 @@ Limit to 1 question MAX.
         return { agent: agentKey, note: textResponse };
 
     } catch (error) {
-        logger.warn(`[Agent] ${agentKey} primary model (${usedModelId}) failed, falling back to Gemini 1.5 Flash...`);
+        logger.warn(`[Agent] ${agentKey} primary model (${usedModelId}) failed, falling back to Gemini 3 Flash...`);
 
         try {
-            // Fallback to Gemini 1.5 Flash (us-central1 / Stable Tier)
-            const fallbackModel = getFallbackModel({ systemInstruction, model: 'gemini-1.5-flash' });
+            // Fallback to Gemini 3 Flash (Global)
+            const fallbackModel = getGenerativeModel({ systemInstruction, tier: 'FLASH' });
 
             const result = await generateWithRetry(fallbackModel, {
                 contents: [{ role: 'user', parts }],
@@ -304,7 +316,7 @@ ${notesFormatted}
 
 Based on all the specialist analyses above, create a unified, helpful response for the user. You MUST:
 
-1. **START by answering the user's intent** - The specialists have identified the likely issue. Tell the user what is happening and what to do. Provide the "Hidden Story" immediately.
+1. **START by answering the user's intent** - The specialists have identified the likely issue. Tell the user what is happening and what to do immediately in a natural, conversational way.
 
 2. **Acknowledge patterns** - Note how different symptoms may be connected across specialties.
 
@@ -346,11 +358,11 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
         return response?.candidates?.[0]?.content?.parts?.[0]?.text ||
             "I apologize, but I'm having trouble synthesizing the analysis. Please try again.";
     } catch (error) {
-        console.warn(`[Orchestrator] Primary Tier failed, falling back to Gemini 1.5 Flash...`);
+        console.warn(`[Orchestrator] Primary Tier failed, falling back to Gemini 3 Flash...`);
 
         try {
-            // Fallback to Gemini 1.5 Flash (us-central1)
-            const fallbackModel = getFallbackModel({ systemInstruction, model: 'gemini-1.5-flash' });
+            // Fallback to Gemini 3 Flash (Global)
+            const fallbackModel = getGenerativeModel({ systemInstruction, tier: 'FLASH' });
             const result = await generateWithRetry(fallbackModel, {
                 contents: [{ role: 'user', parts: [{ text: promptText }] }],
                 generationConfig: {
@@ -466,7 +478,7 @@ export async function runSwarm(
         contextString += `\n\n**Previous Conversation Context:**\n${chatHistorySummary}`;
     }
 
-    // 2. ROUTING PHASE
+    // 2. UNIFIED CLASSIFY + ROUTE (Single AI call)
     if (onProgress) await onProgress({ phase: 'routing' });
 
     // 2a. FILE ANALYSIS (If attachments exist)
@@ -475,8 +487,54 @@ export async function runSwarm(
         fileAnalysis = await analyzeFiles(attachments);
     }
 
-    // Now using Async LLM Routing with Image Support AND File Context
-    const selectedAgents = await routeToAgents(query, imageBase64, imageMimeType, fileAnalysis);
+    // Single call: classifies AND picks agents
+    const routeResult = await classifyAndRoute(query, imageBase64, imageMimeType, fileAnalysis);
+
+    // If the unified router says SIMPLE, redirect to Express Lane
+    if (routeResult.type === 'SIMPLE') {
+        logger.info('[Engine] Unified router classified as SIMPLE → Express Lane');
+        const model = getGenerativeModel({ tier: 'FLASH' });
+        let simpleContext = formatProfileContext(userProfile);
+        if (location) {
+            simpleContext += `\n\n**USER LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}`;
+        }
+        const expressPrompt = `
+        You are Ekam, a helpful and friendly health assistant.
+        The user has asked a simple question.
+        
+        **USER PROFILE CONTEXT:**
+        ${simpleContext}
+
+        **INSTRUCTIONS:**
+        - Answer concisely, warmly, and directly.
+        - Use the user's profile data (Age, Weight, Location, etc.) if asked.
+        - Do NOT analyze symptoms in depth (defer to Critical mode for that).
+        - If the user asks "What is my age?", calculate it from Date of Birth or state it directly.
+        
+        User Query: ${query}
+        `;
+        try {
+            const result = await model.generateContent({
+                contents: [
+                    ...history,
+                    { role: 'user', parts: [{ text: expressPrompt }] }
+                ],
+            });
+            const response = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "I'm here to help!";
+            return {
+                response,
+                agentNotes: [],
+                symptoms: [],
+                consultations: [],
+                usedCouncil: false
+            };
+        } catch (e) {
+            logger.error('[Engine] Express Lane failed after unified routing, continuing to Council:', e);
+        }
+    }
+
+    // CRITICAL path: use the agents from the unified router
+    const selectedAgents = routeResult.agents || ['environment', 'orchestrator', 'guardian'];
 
     logger.info(`[Engine] Routed to: ${selectedAgents.join(', ')}`);
 

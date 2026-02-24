@@ -118,10 +118,6 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
         ? Object.entries(thinkingProgress!.agents!).filter(([, a]) => a.status === 'done' && a.snippet)
         : [];
 
-    const thinkingAgents = hasLiveData
-        ? Object.entries(thinkingProgress!.agents!).filter(([, a]) => a.status === 'thinking')
-        : [];
-
     const allAgents = hasLiveData ? Object.entries(thinkingProgress!.agents!) : [];
 
     // --- SIMPLE MODE: Minimal elegant animation ---

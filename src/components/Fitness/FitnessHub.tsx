@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Dumbbell, Utensils, Activity, ArrowRight, Brain, Check, RefreshCw, X, ChevronLeft, Trophy, Home, Building2, BicepsFlexed, HeartPulse, Scale, Flame } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendMessageToEkam } from '../../lib/ekam_api';
-import { db, doc, getDoc, setDoc, onSnapshot } from '../../lib/firebase';
+import { db, doc, setDoc, onSnapshot } from '../../lib/firebase';
 
 interface FitnessHubProps {
     onClose: () => void;
@@ -66,7 +66,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
     const [step, setStep] = useState<Step>('onboarding');
     const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('experience');
     const [loading, setLoading] = useState(false);
-    
+
     // Profile State
     const [profile, setProfile] = useState<FitnessProfile>({
         experience: 'Beginner',
@@ -79,7 +79,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
     });
 
     // Chat State
-    const [chatHistory, setChatHistory] = useState<{role: 'user' | 'model', text: string}[]>([]);
+    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model', text: string }[]>([]);
     const [consultationInput, setConsultationInput] = useState('');
     const [isConsulting, setIsConsulting] = useState(false);
 
@@ -114,7 +114,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
     const handleEnvironmentSelect = (env: FitnessProfile['environment']) => {
         setProfile(prev => ({ ...prev, environment: env }));
-        
+
         // Auto-suggest equipment based on environment
         if (env === 'Gym') {
             setProfile(prev => ({ ...prev, environment: env, equipment: 'Gym' }));
@@ -133,7 +133,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
     const handleConsultationSend = async () => {
         if (!consultationInput.trim()) return;
-        
+
         const newHistory = [...chatHistory, { role: 'user' as const, text: consultationInput }];
         setChatHistory(newHistory);
         setConsultationInput('');
@@ -148,7 +148,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
             `;
 
             const response = await sendMessageToEkam(
-                consultationInput, 
+                consultationInput,
                 newHistory.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
                 undefined, null, context, undefined, undefined, 'SIMPLE'
             );
@@ -183,7 +183,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
             const response = await sendMessageToEkam(prompt, [], undefined, null, undefined, undefined, undefined, 'CRITICAL');
             const jsonMatch = response.text.match(/\{[\s\S]*\}/);
-            
+
             if (jsonMatch) {
                 const planData = JSON.parse(jsonMatch[0]);
                 if (user) {
@@ -202,15 +202,8 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
         }
     };
 
-    // --- ANIMATION VARIANTS ---
-    const slideVariants = {
-        enter: (direction: number) => ({ x: direction > 0 ? 50 : -50, opacity: 0 }),
-        center: { x: 0, opacity: 1 },
-        exit: (direction: number) => ({ x: direction < 0 ? 50 : -50, opacity: 0 }),
-    };
-
     return (
-        <motion.div 
+        <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -221,7 +214,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
             </button>
 
             <div className="w-full max-w-5xl h-full flex flex-col bg-warm-charcoal rounded-2xl border border-text-cream/5 shadow-2xl overflow-hidden relative">
-                
+
                 {/* Header */}
                 <div className="p-6 border-b border-text-cream/5 bg-surface-charcoal flex justify-between items-center z-10 relative">
                     <div className="flex items-center gap-4">
@@ -235,7 +228,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                             </p>
                         </div>
                     </div>
-                    
+
                     {/* Progress Bar for Onboarding */}
                     {step === 'onboarding' && (
                         <div className="hidden md:flex flex-col items-end gap-2 w-48">
@@ -257,15 +250,15 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
                 {/* Content Area */}
                 <div className="flex-1 overflow-y-auto p-6 md:p-10 relative flex flex-col">
-                    
+
                     {/* STEP 1: ONBOARDING - GUIDED JOURNEY */}
                     {step === 'onboarding' && (
                         <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full">
                             <AnimatePresence mode="wait">
-                                
+
                                 {/* 1. EXPERIENCE LEVEL */}
                                 {onboardingStep === 'experience' && (
-                                    <motion.div 
+                                    <motion.div
                                         key="experience"
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -303,7 +296,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
                                 {/* 2. GOAL SELECTION */}
                                 {onboardingStep === 'goal' && (
-                                    <motion.div 
+                                    <motion.div
                                         key="goal"
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -311,7 +304,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                                         className="space-y-8 text-center"
                                     >
                                         <div>
-                                            <button onClick={() => setOnboardingStep('experience')} className="text-sm text-text-muted-zinc hover:text-amber-500 mb-4 flex items-center justify-center gap-1 mx-auto"><ChevronLeft size={14}/> Back</button>
+                                            <button onClick={() => setOnboardingStep('experience')} className="text-sm text-text-muted-zinc hover:text-amber-500 mb-4 flex items-center justify-center gap-1 mx-auto"><ChevronLeft size={14} /> Back</button>
                                             <h3 className="text-3xl md:text-4xl font-light text-text-cream mb-4">What's your main mission?</h3>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -341,7 +334,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
                                 {/* 3. ENVIRONMENT */}
                                 {onboardingStep === 'environment' && (
-                                    <motion.div 
+                                    <motion.div
                                         key="environment"
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -349,7 +342,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                                         className="space-y-8 text-center"
                                     >
                                         <div>
-                                             <button onClick={() => setOnboardingStep('goal')} className="text-sm text-text-muted-zinc hover:text-amber-500 mb-4 flex items-center justify-center gap-1 mx-auto"><ChevronLeft size={14}/> Back</button>
+                                            <button onClick={() => setOnboardingStep('goal')} className="text-sm text-text-muted-zinc hover:text-amber-500 mb-4 flex items-center justify-center gap-1 mx-auto"><ChevronLeft size={14} /> Back</button>
                                             <h3 className="text-3xl md:text-4xl font-light text-text-cream mb-4">Where will you train?</h3>
                                         </div>
                                         <div className="flex flex-col md:flex-row gap-4 justify-center">
@@ -375,7 +368,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
                                 {/* 4. GEAR CHECK (Conditional) */}
                                 {onboardingStep === 'gear' && (
-                                    <motion.div 
+                                    <motion.div
                                         key="gear"
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -406,7 +399,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
 
                                 {/* 5. SUMMARY */}
                                 {onboardingStep === 'summary' && (
-                                    <motion.div 
+                                    <motion.div
                                         key="summary"
                                         initial={{ opacity: 0, scale: 0.9 }}
                                         animate={{ opacity: 1, scale: 1 }}
@@ -424,7 +417,7 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                                         <p className="text-text-cream/80 max-w-md mx-auto">
                                             We're ready to design your protocol. You can chat with our AI Coach to refine details, or generate your plan immediately.
                                         </p>
-                                        <button 
+                                        <button
                                             onClick={() => setStep('consultation')}
                                             className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-medium transition-all shadow-lg"
                                         >
@@ -458,14 +451,14 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-white/10 text-white' : 'bg-amber-500/20 text-amber-500'}`}>
                                                     {msg.role === 'user' ? <div className="w-2 h-2 bg-white rounded-full" /> : <Brain size={16} />}
                                                 </div>
-                                                <div className={`p-4 rounded-2xl border max-w-[80%] ${msg.role === 'user' 
-                                                    ? 'bg-amber-600/20 border-amber-500/20 text-text-cream rounded-tr-none' 
+                                                <div className={`p-4 rounded-2xl border max-w-[80%] ${msg.role === 'user'
+                                                    ? 'bg-amber-600/20 border-amber-500/20 text-text-cream rounded-tr-none'
                                                     : 'bg-surface-charcoal border-text-cream/5 text-text-cream/90 rounded-tl-none'}`}>
                                                     <p>{msg.text}</p>
                                                 </div>
                                             </div>
                                         ))}
-                                        
+
                                         {isConsulting && (
                                             <div className="flex gap-4 animate-pulse">
                                                 <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-500 flex-shrink-0">
@@ -486,21 +479,21 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                                             </div>
                                         ) : (
                                             <div className="flex gap-2">
-                                                <input 
-                                                    type="text" 
+                                                <input
+                                                    type="text"
                                                     value={consultationInput}
                                                     onChange={(e) => setConsultationInput(e.target.value)}
                                                     onKeyDown={(e) => e.key === 'Enter' && handleConsultationSend()}
                                                     placeholder="Type your reply..."
                                                     className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-xl px-4 py-3 text-text-cream focus:ring-1 focus:ring-amber-500/50 outline-none"
                                                 />
-                                                <button 
+                                                <button
                                                     onClick={handleConsultationSend}
                                                     className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-text-cream transition-colors"
                                                 >
                                                     <ArrowRight size={20} />
                                                 </button>
-                                                <button 
+                                                <button
                                                     onClick={generateFinalPlan}
                                                     className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-amber-900/20 whitespace-nowrap"
                                                 >
@@ -515,22 +508,22 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
                             {/* Plan Display */}
                             {step === 'plan' && plan && (
                                 <div className="animate-in fade-in duration-700 h-full overflow-y-auto pr-2">
-                                     <div className="flex justify-center gap-2 mb-6">
-                                         <button 
+                                    <div className="flex justify-center gap-2 mb-6">
+                                        <button
                                             onClick={() => setActiveTab('workout')}
                                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'workout' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'text-text-muted-zinc hover:bg-white/5'}`}
                                         >
                                             <Dumbbell size={16} className="inline mr-2" /> Workouts
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={() => setActiveTab('diet')}
                                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'diet' ? 'bg-green-500/20 text-green-500 border border-green-500/30' : 'text-text-muted-zinc hover:bg-white/5'}`}
                                         >
                                             <Utensils size={16} className="inline mr-2" /> Nutrition
                                         </button>
-                                     </div>
+                                    </div>
 
-                                     <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 to-transparent border-l-4 border-amber-500 rounded-r-xl">
+                                    <div className="mb-8 p-6 bg-gradient-to-r from-amber-500/10 to-transparent border-l-4 border-amber-500 rounded-r-xl">
                                         <h3 className="text-xl font-medium text-amber-400 mb-2">Coach's Summary</h3>
                                         <p className="text-text-cream/90 italic leading-relaxed">"{plan.summary}"</p>
                                     </div>

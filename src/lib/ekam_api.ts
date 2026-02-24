@@ -150,15 +150,9 @@ export async function sendMessageToEkam(
                 `\n\n[SYSTEM] The user has the following medical files in their Vault. You have access to read them if relevant:\n${recordsInfo}`;
         }
 
-        console.log('[Ekam API] Calling Cloud Function with message:', message.substring(0, 50));
-
         // Call the Cloud Function
         const result = await processMessageFn(request);
         const data = result.data;
-
-        console.log('[Ekam API] Response received from Cloud Function');
-        console.log('[Ekam API] Agents consulted:', data.agentNotes?.length || 0);
-        console.log('[Ekam API] Cross-consultations:', data.consultations?.length || 0);
 
         return {
             text: data.response,
@@ -237,8 +231,7 @@ export async function generateChatTitle(userMessage: string): Promise<string> {
 export async function healthCheck(): Promise<boolean> {
     try {
         const healthCheckFn = httpsCallable(functions, 'healthCheck');
-        const result = await healthCheckFn({});
-        console.log('[Ekam API] Health check passed:', result.data);
+        await healthCheckFn({});
         return true;
     } catch (error) {
         console.error('[Ekam API] Health check failed:', error);
@@ -334,7 +327,6 @@ export async function routeQuery(text: string): Promise<QueryComplexity> {
         console.log('[Ekam Router] Classifying query (server)...');
         const result = await classifyQueryFn({ text });
         const classification = result.data.type || 'CRITICAL';
-        console.log('[Ekam Router] Server classification:', classification);
         return classification as QueryComplexity;
     } catch (error) {
         console.warn('[Ekam Router] Server classification failed (defaulting to CRITICAL):', error);

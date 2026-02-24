@@ -1,5 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Plus, X, Zap } from 'lucide-react';
+import { ArrowUp, Plus, X, Zap, Mic, MicOff } from 'lucide-react';
+
+// Add type declarations for Web Speech API
+declare global {
+    interface Window {
+        SpeechRecognition: any;
+        webkitSpeechRecognition: any;
+    }
+}
 
 interface InputAreaProps {
     onSend: (text: string, file?: File) => Promise<void> | void;
@@ -12,8 +20,64 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, godMode,
     const [text, setText] = useState('');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const recognitionRef = useRef<any>(null);
+
+    // Initialize Speech Recognition
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognitionRef.current = new SpeechRecognition();
+                recognitionRef.current.continuous = true;
+                recognitionRef.current.interimResults = true;
+                recognitionRef.current.lang = 'en-US';
+
+                recognitionRef.current.onresult = (event: any) => {
+                    let currentTranscript = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        currentTranscript += event.results[i][0].transcript;
+                    }
+                    // Prevent completely overwriting if there's old text, but for simple dictation 
+                    // we replace the current working text for smoothness.
+                    // To be safe, we append if it's a final result, else we replace the "interim" part.
+                    // For simplicity, we just push the latest recognized block to the text field.
+
+                    // Actually, a simpler robust way: just append final results
+                    if (event.results[event.results.length - 1].isFinal) {
+                        setText((prev) => prev + (prev.length > 0 ? ' ' : '') + currentTranscript.trim());
+                    }
+                };
+
+                recognitionRef.current.onerror = (event: any) => {
+                    console.error('Speech recognition error', event.error);
+                    setIsRecording(false);
+                };
+
+                recognitionRef.current.onend = () => {
+                    setIsRecording(false);
+                };
+            }
+        }
+    }, []);
+
+    const toggleRecording = () => {
+        if (!recognitionRef.current) {
+            alert('Speech recognition is not supported in this browser.');
+            return;
+        }
+
+        if (isRecording) {
+            recognitionRef.current.stop();
+            setIsRecording(false);
+        } else {
+            recognitionRef.current.start();
+            setIsRecording(true);
+        }
+    };
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -105,9 +169,9 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, godMode,
                         disabled={disabled}
                         title={godMode ? 'God Mode ON — All agents use PRO + medium thinking' : 'God Mode OFF — Click to activate'}
                         className={`p-2.5 rounded-full mb-0.5 transition-all duration-300 ${disabled ? 'opacity-30 cursor-not-allowed' :
-                                godMode
-                                    ? 'text-amber-400 bg-amber-400/10 ring-1 ring-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
-                                    : 'text-text-muted-zinc hover:text-amber-400 hover:bg-amber-400/5'
+                            godMode
+                                ? 'text-amber-400 bg-amber-400/10 ring-1 ring-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+                                : 'text-text-muted-zinc hover:text-amber-400 hover:bg-amber-400/5'
                             }`}
                     >
                         <Zap size={18} strokeWidth={2.5} fill={godMode ? 'currentColor' : 'none'} />
@@ -141,6 +205,20 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, godMode,
                             rows={1}
                         />
                     </div>
+
+                    {/* Mic Button */}
+                    <button
+                        onClick={toggleRecording}
+                        disabled={disabled}
+                        title={isRecording ? "Stop Recording" : "Dictate Message"}
+                        className={`p-2.5 rounded-full mb-0.5 transition-all duration-300 ${disabled ? 'opacity-30 cursor-not-allowed' :
+                            isRecording
+                                ? 'text-red-400 bg-red-400/10 ring-1 ring-red-400/30 shadow-[0_0_12px_rgba(248,113,113,0.25)] animate-pulse'
+                                : 'text-text-muted-zinc hover:text-text-cream hover:bg-white/10'
+                            }`}
+                    >
+                        {isRecording ? <MicOff size={18} strokeWidth={2.5} /> : <Mic size={18} strokeWidth={2.5} />}
+                    </button>
 
                     {/* Send Button */}
                     <button

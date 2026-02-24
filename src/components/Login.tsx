@@ -10,7 +10,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
     const [isLoggingIn, setIsLoggingIn] = useState(false);
 
     const [error, setError] = useState<string | null>(null);
-    const [showRedirectLogin, setShowRedirectLogin] = useState(false);
 
     const handleLogin = async () => {
         setIsLoggingIn(true);
@@ -23,7 +22,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onLoginRedirect }) => {
             // Check for popup blocked/closed error
             if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed-by-user') || err.message?.includes('popup-blocked')) {
                 setError("Popup failed (often due to browser privacy settings). Please use the Standard Login below.");
-                setShowRedirectLogin(true);
             } else {
                 setError(`Failed to sign in: ${err.message} (${err.code})`);
             }

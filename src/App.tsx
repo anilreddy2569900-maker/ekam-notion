@@ -153,7 +153,6 @@ const App: React.FC = () => {
         // Cache to localStorage for instant load next time
         localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
         localStorage.setItem('ekam_onboarding_completed', 'true');
-        console.log('[App] User profile synced from Firestore:', data);
       } else {
         // Profile missing in Firestore
         const cachedProfileStr = localStorage.getItem(`ekam_profile_${user.uid}`);
@@ -389,7 +388,6 @@ const App: React.FC = () => {
           if (mode === 'CRITICAL') {
             extractMemory(text).then(async (facts) => {
               if (facts && facts.length > 0) {
-                console.log('[App] Flash Memory captured:', facts);
                 const updates: Record<string, any> = {};
 
                 facts.forEach(f => {
@@ -447,7 +445,6 @@ const App: React.FC = () => {
           if (profileUpdateMatch && profileUpdateMatch[1]) {
             try {
               const updates = JSON.parse(profileUpdateMatch[1]);
-              console.log('[App] Applying AI Profile Updates:', updates);
 
               const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
               await updateDoc(profileRef, updates);
@@ -476,7 +473,7 @@ const App: React.FC = () => {
 
           // Log agent notes if council was used (for debugging, will be used in UI later)
           if (ekamResponse.usedCouncil && ekamResponse.agentNotes) {
-            console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
+            // console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
           }
 
           // Add AI message to Firestore - with timeout

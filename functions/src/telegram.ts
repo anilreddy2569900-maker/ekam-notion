@@ -14,6 +14,11 @@ import * as logger from 'firebase-functions/logger';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebase';
 import { runSwarm } from './swarm/engine';
+import { SpeechClient } from '@google-cloud/speech';
+import FormData from 'form-data';
+
+// Initialize SpeechClient once globally for the instance
+const speechClient = new SpeechClient({ projectId: 'ekam-8bf91' });
 
 // ============================================================================
 // CONSTANTS
@@ -250,7 +255,7 @@ export const disconnectTelegramBot = onCall(
  * Runs full swarm engine and returns response to Telegram.
  */
 export const telegramWebhook = onRequest(
-    { cors: true, region: 'us-central1', memory: '1GiB', timeoutSeconds: 300 },
+    { cors: true, region: 'us-central1', memory: '1GiB', timeoutSeconds: 300, secrets: ['SARVAM_API_KEY'] },
     async (req, res) => {
         // Only accept POST
         if (req.method !== 'POST') {
@@ -282,15 +287,17 @@ export const telegramWebhook = onRequest(
         }
 
         const telegramChatId = message.chat.id;
-        const text = (message.text || '').trim();
+        let text = (message.text || '').trim();
         const photo = message.photo;
         const document = message.document;
+        const voice = message.voice || message.audio;
 
         // Respond immediately to Telegram (avoid retries)
         res.sendStatus(200);
 
         // Process in background
         (async () => {
+            let typingInterval: NodeJS.Timeout | null = null;
             try {
                 // 1. Fetch user's bot token + profile
                 const profileRef = db.doc(`users/${uid}/profile/health_data`);
@@ -318,12 +325,15 @@ export const telegramWebhook = onRequest(
                     return;
                 }
 
-                if (!text && !photo && !document) {
-                    await sendTelegramMessage(telegramChatId, 'Please send a text message, photo, or document.', token);
+                if (!text && !photo && !document && !voice) {
+                    await sendTelegramMessage(telegramChatId, 'Please send a text message, photo, document, or voice note.', token);
                     return;
                 }
 
-                // 3. Send typing indicator
+                // 3. Keep sending typing indicator every 4 seconds
+                typingInterval = setInterval(() => {
+                    sendTypingAction(telegramChatId, token);
+                }, 4000);
                 await sendTypingAction(telegramChatId, token);
 
                 // 4. Fetch/create the telegram chat doc in Firestore
@@ -331,12 +341,14 @@ export const telegramWebhook = onRequest(
                 const messagesRef = chatRef.collection('messages');
 
                 // 5. Save user message to Firestore (for web history)
-                const userContent = text || (photo ? '📷 Photo' : '📄 Document');
+                // If it's a voice note, we'll tentatively set the content to '🎙️ Voice Note' until transcribed
+                let userContent = text || (photo ? '📷 Photo' : (document ? '📄 Document' : '🎙️ Voice Note'));
 
                 let tempImageId: string | undefined;
                 let tempDocumentId: string | undefined;
                 let originalFileName: string | undefined;
                 let mimeType: string | undefined;
+                let tempVoiceId: string | undefined;
 
                 if (photo) {
                     const largest = photo[photo.length - 1];
@@ -348,6 +360,10 @@ export const telegramWebhook = onRequest(
                     originalFileName = document.file_name;
                     mimeType = document.mime_type;
                 }
+                if (voice) {
+                    tempVoiceId = voice.file_id;
+                    mimeType = voice.mime_type || 'audio/ogg';
+                }
 
                 await messagesRef.add({
                     role: 'user',
@@ -355,6 +371,7 @@ export const telegramWebhook = onRequest(
                     createdAt: FieldValue.serverTimestamp(),
                     tempImageId: tempImageId || null,
                     tempDocumentId: tempDocumentId || null,
+                    tempVoiceId: tempVoiceId || null,
                     originalFileName: originalFileName || null,
                     mimeType: mimeType || null,
                     source: 'telegram',
@@ -385,27 +402,122 @@ export const telegramWebhook = onRequest(
                     });
                 });
 
-                // 7. Handle image/document downloads
+                // 7. Handle image/document/voice downloads
                 let imageBase64: string | undefined;
                 let imageMimeType: string | undefined;
                 const attachments: { fileUri: string; mimeType: string }[] = [];
 
-                if (tempImageId || tempDocumentId) {
-                    const fileId = tempImageId || tempDocumentId;
+                if (tempImageId || tempDocumentId || tempVoiceId) {
+                    const fileId = tempImageId || tempDocumentId || tempVoiceId;
                     const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
                     const fileData = await fileRes.json() as { ok: boolean; result?: { file_path: string } };
 
                     if (fileData.ok && fileData.result) {
                         const downloadRes = await fetch(`https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`);
                         const arrayBuffer = await downloadRes.arrayBuffer();
+                        const buffer = Buffer.from(arrayBuffer);
 
                         if (tempImageId) {
-                            imageBase64 = Buffer.from(arrayBuffer).toString('base64');
+                            imageBase64 = buffer.toString('base64');
                             imageMimeType = 'image/jpeg';
+                        } else if (tempVoiceId) {
+                            // Determine Routing: Sarvam (South Asia) vs Chirp (Rest of World)
+                            const detectSouthAsia = (profile: any) => {
+                                if (!profile) return false;
+                                const loc = (profile.location || '').toLowerCase();
+                                if (loc.includes('india') || loc.includes('pakistan') || loc.includes('nepal')) return true;
+                                const phone = (profile.phoneNumber || '');
+                                if (phone.startsWith('+91') || phone.startsWith('+92') || phone.startsWith('+977')) return true;
+                                return false;
+                            };
+
+                            const isSouthAsia = detectSouthAsia(profileData);
+
+                            try {
+                                let transcript = '*unintelligible*';
+                                let detectedLang = 'unknown';
+
+                                if (isSouthAsia) {
+                                    // Route to Sarvam saaras:v3
+                                    logger.info(`[Telegram Voice] Routing to Sarvam (saaras:v3) for South Asian user...`);
+
+                                    const SARVAM_API_KEY = process.env.SARVAM_API_KEY || (profileData as any)?.SARVAM_API_KEY; // Fallback if injected
+
+                                    if (!SARVAM_API_KEY) {
+                                        logger.warn(`[Telegram Voice] SARVAM_API_KEY missing. Falling back to Chirp.`);
+                                        throw new Error("SARVAM_API_KEY not found");
+                                    }
+
+                                    const form = new FormData();
+                                    form.append('file', buffer, { filename: 'audio.ogg', contentType: mimeType || 'audio/ogg' });
+                                    form.append('model', 'saaras:v3');
+                                    form.append('mode', 'transcribe');
+
+                                    const sarvamRes = await fetch('https://api.sarvam.ai/speech-to-text', {
+                                        method: 'POST',
+                                        headers: {
+                                            'api-subscription-key': SARVAM_API_KEY,
+                                            // The browser/node-fetch automatically sets the boundary for FormData
+                                            ...form.getHeaders()
+                                        },
+                                        body: form as any
+                                    });
+
+                                    if (!sarvamRes.ok) {
+                                        const errText = await sarvamRes.text();
+                                        throw new Error(`Sarvam API Error: ${sarvamRes.status} ${errText}`);
+                                    }
+
+                                    const data = await sarvamRes.json() as any;
+                                    transcript = data.transcript || transcript;
+                                    detectedLang = data.language_code || 'hi-IN'; // Assuming primarily Indic
+
+                                } else {
+                                    // Route to Google Cloud Speech API (Chirp / latest_long)
+                                    logger.info(`[Telegram Voice] Routing to Google Speech (Chirp) API...`);
+
+                                    const audioBase64 = buffer.toString('base64');
+                                    const recognitionRequest = {
+                                        config: {
+                                            encoding: 'WEBM_OPUS' as const,
+                                            languageCode: 'auto', // Let Chirp auto-detect if possible, or fallback gracefully
+                                            alternativeLanguageCodes: ['en-US', 'hi-IN', 'te-IN', 'ta-IN', 'bn-IN', 'mr-IN'],
+                                            enableAutomaticPunctuation: true,
+                                            model: 'latest_long',
+                                            useEnhanced: true,
+                                        },
+                                        audio: { content: audioBase64 },
+                                    };
+
+                                    const [response] = await speechClient.recognize(recognitionRequest as any);
+
+                                    transcript = response.results
+                                        ?.map(result => result.alternatives?.[0].transcript)
+                                        .join('\n') || '*unintelligible*';
+
+                                    detectedLang = response.results?.[0]?.languageCode || 'unknown';
+                                }
+
+                                text = `[Voice Note Transcription - Language: ${detectedLang}]\n${transcript}`;
+
+                                // Update the saved user message in Firestore from '🎙️ Voice Note' to the actual text
+                                await chatRef.collection('messages').where('tempVoiceId', '==', tempVoiceId).get().then(snap => {
+                                    if (!snap.empty) {
+                                        snap.docs[0].ref.update({ content: `🎙️ ${transcript}` });
+                                    }
+                                });
+                                // Also update the sidebar preview
+                                await chatRef.update({ preview: `🎙️ ${transcript.substring(0, 50)}` });
+
+                                logger.info(`[Telegram Voice] Transcribed (${detectedLang}): ${transcript}`);
+                            } catch (err) {
+                                logger.error(`[Telegram Voice] Transcription failed`, err);
+                                // Fallback logic if Sarvam fails but we wanted to try it? We'll just report the failure for now to avoid doubling latency on error.
+                                text = "*Voice note could not be transcribed.*";
+                            }
                         } else if (tempDocumentId) {
                             // Upload to Firebase Storage Vault
                             const { getStorage } = await import('firebase-admin/storage');
-                            const buffer = Buffer.from(arrayBuffer);
                             const timestamp = Date.now();
                             const fname = originalFileName || `telegram_doc_${timestamp}.pdf`;
                             const storagePath = `uploads/${uid}/${timestamp}_${fname}`;
@@ -434,8 +546,9 @@ export const telegramWebhook = onRequest(
                 }
 
                 // 8. Run full Swarm Engine
+                const promptText = text || (photo ? 'Please analyze this image.' : `Please analyze this document: ${originalFileName}`);
                 const swarmResult = await runSwarm(
-                    text || (photo ? 'Please analyze this image.' : `Please analyze this document: ${originalFileName}`),
+                    promptText,
                     history,
                     profileData as any,
                     undefined, // location
@@ -495,6 +608,8 @@ export const telegramWebhook = onRequest(
                         );
                     }
                 } catch { /* ignore fallback errors */ }
+            } finally {
+                if (typingInterval) clearInterval(typingInterval);
             }
         })();
     }

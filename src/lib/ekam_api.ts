@@ -39,6 +39,7 @@ interface SwarmRequest {
     attachments?: { storagePath?: string; mimeType: string }[];
     userId?: string;
     chatId?: string;
+    godMode?: boolean;
 }
 
 interface SwarmResult {
@@ -54,6 +55,23 @@ interface SwarmResult {
 
 const processMessageFn = httpsCallable<SwarmRequest, SwarmResult>(functions, 'processMessage', { timeout: 300000 });
 const transcribeAudioFn = httpsCallable<{ audio: string; languageCode?: string }, { text: string; languageCode: string }>(functions, 'transcribeAudio');
+const registerTelegramBotFn = httpsCallable<{ token: string }, { success: boolean; botName: string; botUsername: string }>(functions, 'registerTelegramBot');
+const disconnectTelegramBotFn = httpsCallable<Record<string, never>, { success: boolean }>(functions, 'disconnectTelegramBot');
+
+/**
+ * Register a user's Telegram bot by validating the token and registering the webhook.
+ */
+export async function registerTelegramBot(token: string): Promise<{ botName: string; botUsername: string }> {
+    const result = await registerTelegramBotFn({ token });
+    return { botName: result.data.botName, botUsername: result.data.botUsername };
+}
+
+/**
+ * Disconnect the user's Telegram bot (removes webhook + token from profile).
+ */
+export async function disconnectTelegramBot(): Promise<void> {
+    await disconnectTelegramBotFn({});
+}
 
 // ============================================================================
 // MAIN API FUNCTION
@@ -98,7 +116,8 @@ export async function sendMessageToEkam(
     location?: { lat: number; lng: number } | null,
     mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL',
     userId?: string,
-    chatId?: string
+    chatId?: string,
+    godMode?: boolean
 ): Promise<EkamResponse> {
     try {
         // Map health records to SwarmAttachments (Multimodal Input)
@@ -120,7 +139,8 @@ export async function sendMessageToEkam(
             location: location || undefined,
             mode,
             userId: userId || undefined,
-            chatId: chatId || undefined
+            chatId: chatId || undefined,
+            godMode: godMode || undefined
         };
 
         // Add health records context text (listing filenames) for awareness

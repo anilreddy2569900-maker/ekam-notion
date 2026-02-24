@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Settings, FileText, MessageSquare, Trash2, LogOut, Dumbbell } from 'lucide-react';
+import { Plus, X, Settings, FileText, MessageSquare, Trash2, LogOut, Dumbbell, Send } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, deleteDoc, doc } from '../lib/firebase';
 
@@ -140,7 +140,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
                                         }}
                                         className="w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-3 group-hover:pr-8"
                                     >
-                                        <MessageSquare size={14} className="flex-shrink-0 text-text-muted-zinc/50 group-hover:text-accent-clay transition-colors" />
+                                        {chat.id === 'telegram' ? (
+                                            <Send size={14} className="flex-shrink-0 text-[#0088cc]/60 group-hover:text-[#0088cc] transition-colors" />
+                                        ) : (
+                                            <MessageSquare size={14} className="flex-shrink-0 text-text-muted-zinc/50 group-hover:text-accent-clay transition-colors" />
+                                        )}
                                         <div className="min-w-0">
                                             <p className="text-sm text-text-muted-zinc group-hover:text-text-cream transition-colors line-clamp-1 font-light tracking-wide">{chat.title}</p>
                                         </div>

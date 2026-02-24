@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { db, doc, setDoc, onSnapshot, serverTimestamp } from '../lib/firebase';
-import { ArrowLeft, Save, Check, HelpCircle, Plus, X } from 'lucide-react';
+import { ArrowLeft, Save, Check, HelpCircle, Plus, X, Send, AlertCircle, Loader } from 'lucide-react';
 import { HelpModal } from './HelpModal';
+import { registerTelegramBot, disconnectTelegramBot } from '../lib/ekam_api';
 
 interface ProfileSettingsProps {
     onClose: () => void;
@@ -23,6 +24,15 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         title: '',
         content: null
     });
+
+    // Expansion state for clinical memory
+    const [showAllMemory, setShowAllMemory] = useState(false);
+
+    // Telegram connection state
+    const [telegramToken, setTelegramToken] = useState('');
+    const [telegramStatus, setTelegramStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+    const [telegramBotUsername, setTelegramBotUsername] = useState('');
+    const [telegramError, setTelegramError] = useState('');
 
     // Form Data State
     const [formData, setFormData] = useState({
@@ -60,10 +70,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
             }
         }
 
-        const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+        const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
 
         // Real-time listener
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        const unsubscribe = onSnapshot(profileRef, (docSnap) => {
             if (docSnap.exists()) {
                 // Only update form data if we are NOT currently saving
                 if (!isSaving) {
@@ -71,9 +81,18 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                     setFormData(data);
                     // Sync saved state
                     if (data.phoneNumber) setSavedPhoneNumber(data.phoneNumber);
+                    // Sync Telegram bot status
+                    if (data.telegramBotUsername) {
+                        setTelegramBotUsername(data.telegramBotUsername);
+                        setTelegramStatus('connected');
+                    }
 
                     // Update cache silently
-                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
+                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
+                        ...data, // Ensure all data is cached, not just what's explicitly set
+                        updatedAt: new Date().toISOString(), // Add updatedAt for cache consistency
+                        onboardingCompleted: true // Add onboardingCompleted for cache consistency
+                    }));
                 }
             }
             setIsLoading(false);
@@ -415,40 +434,72 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                     </p>
 
                     <div className="space-y-3">
-                        {Object.entries(formData)
-                            .filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted', 'phoneNumber'].includes(key))
-                            .map(([key, value]) => (
-                                <div key={key} className="flex items-center gap-3 group">
-                                    <div className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 flex items-center gap-4">
-                                        <span className="text-text-muted-zinc text-sm font-medium uppercase tracking-wider min-w-[100px]">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
-                                        <div className="h-4 w-px bg-white/10"></div>
-                                        <input
-                                            type="text"
-                                            value={value as string}
-                                            onChange={(e) => updateData(key, e.target.value)}
-                                            className="bg-transparent text-text-cream flex-1 focus:outline-none text-sm"
-                                        />
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const newData = { ...formData };
-                                            delete (newData as any)[key];
-                                            setFormData(newData);
-                                        }}
-                                        className="p-3 text-text-muted-zinc hover:text-red-400 hover:bg-text-cream/5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                        title="Forget this memory"
-                                    >
-                                        <X size={18} />
-                                    </button>
-                                </div>
-                            ))}
+                        {(() => {
+                            // Define standard and internal keys to hide
+                            const hiddenKeys = [
+                                'gender', 'dob', 'height', 'weight', 'diet', 'skinType',
+                                'hairType', 'allergies', 'conditions', 'updatedAt',
+                                'onboardingCompleted', 'phoneNumber',
+                                'telegramBotToken', 'telegramBotUsername', 'telegramBotName',
+                                'telegramConnectedAt', 'telegramChatId'
+                            ];
 
-                        {/* Empty state if no extra memories */}
-                        {Object.entries(formData).filter(([key]) => !['gender', 'dob', 'height', 'weight', 'diet', 'skinType', 'hairType', 'allergies', 'conditions', 'updatedAt', 'onboardingCompleted'].includes(key)).length === 0 && (
-                            <div className="text-center py-8 border border-dashed border-text-cream/10 rounded-lg text-text-muted-zinc/50 text-sm">
-                                No specialized memories yet. Upload a photo or chat with Ekam to generate insights.
-                            </div>
-                        )}
+                            // Filter custom memory entries
+                            const memoryEntries = Object.entries(formData)
+                                .filter(([key]) => !hiddenKeys.includes(key));
+
+                            // Determine entries to display based on toggle state
+                            const displayedEntries = showAllMemory ? memoryEntries : memoryEntries.slice(0, 5);
+
+                            if (memoryEntries.length === 0) {
+                                return (
+                                    <div className="text-center py-8 border border-dashed border-text-cream/10 rounded-lg text-text-muted-zinc/50 text-sm">
+                                        No specialized memories yet. Upload a photo or chat with Ekam to generate insights.
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <>
+                                    {displayedEntries.map(([key, value]) => (
+                                        <div key={key} className="flex items-center gap-3 group">
+                                            <div className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 flex items-center gap-4">
+                                                <span className="text-text-muted-zinc text-sm font-medium uppercase tracking-wider min-w-[100px]">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                                <div className="h-4 w-px bg-white/10"></div>
+                                                <input
+                                                    type="text"
+                                                    value={value as string}
+                                                    onChange={(e) => updateData(key, e.target.value)}
+                                                    className="bg-transparent text-text-cream flex-1 focus:outline-none text-sm"
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    const newData = { ...formData };
+                                                    delete (newData as any)[key];
+                                                    setFormData(newData);
+                                                }}
+                                                className="p-3 text-text-muted-zinc hover:text-red-400 hover:bg-text-cream/5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                                title="Forget this memory"
+                                            >
+                                                <X size={18} />
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    {memoryEntries.length > 5 && (
+                                        <div className="flex justify-center pt-2">
+                                            <button
+                                                onClick={() => setShowAllMemory(!showAllMemory)}
+                                                className="text-xs text-text-muted-zinc hover:text-text-cream transition-colors py-2 px-4 rounded-full bg-white/5 hover:bg-white/10"
+                                            >
+                                                {showAllMemory ? '▲ Collapse Memory' : `▼ See ${memoryEntries.length - 5} More`}
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            );
+                        })()}
 
                         {/* Add New Memory Button */}
                         <div className="pt-2">
@@ -471,67 +522,119 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                     </div>
                 </section>
 
-                {/* Section 4.5: Connect Bots */}
+                {/* Section 4.5: Telegram Bot */}
                 <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">
                     <h2 className="text-xl font-medium text-text-cream/90 flex items-center gap-2">
-                        Connect AI Assistants
+                        Connect Telegram
                         <div className="h-px bg-white/10 flex-1 ml-4"></div>
+                        {telegramStatus === 'connected' && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-[#0088cc]/15 text-[#0088cc] border border-[#0088cc]/20 flex items-center gap-1">
+                                <Check size={11} /> @{telegramBotUsername}
+                            </span>
+                        )}
                     </h2>
 
-                    <div className="bg-surface-charcoal/50 rounded-xl p-4 border border-text-cream/5">
-                        <div className="flex items-start gap-3">
-                            <div className="p-2 bg-accent-clay/10 rounded-lg text-accent-clay">
-                                <HelpCircle size={20} />
+                    {telegramStatus !== 'connected' ? (
+                        <div className="space-y-5">
+                            {/* Step-by-step instructions */}
+                            <div className="bg-[#0088cc]/5 border border-[#0088cc]/15 rounded-xl p-4 space-y-3">
+                                <p className="text-xs font-medium text-[#0088cc] uppercase tracking-wider">Setup Instructions</p>
+                                {[
+                                    { n: 1, text: 'Open Telegram and search for @BotFather' },
+                                    { n: 2, text: 'Send /newbot — choose a name (e.g. "My Ekam") and a username ending in "bot"' },
+                                    { n: 3, text: 'Copy the API token BotFather gives you (looks like: 123456789:ABCdef...)' },
+                                    { n: 4, text: 'Paste it below and click Connect' },
+                                ].map(step => (
+                                    <div key={step.n} className="flex items-start gap-3">
+                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#0088cc]/20 text-[#0088cc] text-xs flex items-center justify-center font-bold">{step.n}</span>
+                                        <p className="text-sm text-text-muted-zinc leading-relaxed">{step.text}</p>
+                                    </div>
+                                ))}
                             </div>
+
+                            {/* Token input */}
                             <div>
-                                <h3 className="text-text-cream font-medium text-sm">How to Connect</h3>
-                                <p className="text-text-muted-zinc text-xs mt-1 leading-relaxed">
-                                    To use Ekam on WhatsApp or Telegram, simply save your phone number below (with country code, e.g., +91).
-                                    Then click the buttons to start a chat!
-                                </p>
+                                <label className="block text-sm text-text-muted-zinc mb-2">Bot API Token</label>
+                                <input
+                                    type="text"
+                                    value={telegramToken}
+                                    onChange={e => { setTelegramToken(e.target.value); setTelegramError(''); }}
+                                    placeholder="123456789:ABCdefGhIJKlmNoPQRsTuVwXYZ"
+                                    className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 text-text-cream text-sm font-mono focus:outline-none focus:border-[#0088cc]/50 transition-colors"
+                                />
+                                {telegramError && (
+                                    <div className="flex items-center gap-2 mt-2 text-red-400 text-xs">
+                                        <AlertCircle size={12} /> {telegramError}
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                    </div>
 
-                    <div>
-                        <label className="block text-sm text-text-muted-zinc mb-2">Phone Number (with Country Code)</label>
-                        <div className="flex items-center gap-3">
-                            <input
-                                type="tel"
-                                placeholder="+919999999999"
-                                value={formData.phoneNumber}
-                                onChange={e => updateData('phoneNumber', e.target.value)}
-                                className="flex-1 bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-2 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
-                            />
-                            {savedPhoneNumber && savedPhoneNumber === formData.phoneNumber && (
-                                <span className="px-3 py-1 bg-green-500/10 text-green-400 text-xs rounded-full border border-green-500/20 flex items-center gap-1">
-                                    <Check size={12} /> Linked
-                                </span>
-                            )}
+                            {/* Connect button */}
+                            <button
+                                onClick={async () => {
+                                    if (!telegramToken.trim()) return;
+                                    setTelegramStatus('connecting');
+                                    setTelegramError('');
+                                    try {
+                                        const result = await registerTelegramBot(telegramToken.trim());
+                                        setTelegramBotUsername(result.botUsername);
+                                        setTelegramStatus('connected');
+                                        setTelegramToken('');
+                                    } catch (err: any) {
+                                        setTelegramStatus('error');
+                                        setTelegramError(err.message || 'Failed to connect. Check your token and try again.');
+                                        setTimeout(() => setTelegramStatus('idle'), 100);
+                                    }
+                                }}
+                                disabled={telegramStatus === 'connecting' || !telegramToken.trim()}
+                                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#0088cc]/15 hover:bg-[#0088cc]/25 text-[#0088cc] border border-[#0088cc]/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                            >
+                                {telegramStatus === 'connecting' ? (
+                                    <><Loader size={16} className="animate-spin" /> Connecting...</>
+                                ) : (
+                                    <><Send size={16} /> Connect Bot</>
+                                )}
+                            </button>
                         </div>
-                        <p className="text-xs text-text-muted-zinc mt-2 opacity-70">
-                            Enter with <strong className="text-text-cream">Country Code</strong> (e.g. +91 or +1). This allows Ekam to recognize you on WhatsApp.
-                        </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                        <a
-                            href={`https://wa.me/15551735233?text=Hello`} // Correct Test Number
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-xl border border-[#25D366]/20 transition-all group"
-                        >
-                            <span>Chat on WhatsApp</span>
-                        </a>
-                        <a
-                            href="https://t.me/EkamHealth_Bot" // Correct Bot Username
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0088cc]/10 hover:bg-[#0088cc]/20 text-[#0088cc] rounded-xl border border-[#0088cc]/20 transition-all group"
-                        >
-                            <span>Chat on Telegram</span>
-                        </a>
-                    </div>
+                    ) : (
+                        /* Connected state */
+                        <div className="space-y-4">
+                            <div className="bg-[#0088cc]/8 border border-[#0088cc]/20 rounded-xl p-4 flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-full bg-[#0088cc]/20 flex items-center justify-center text-[#0088cc]">
+                                    <Send size={18} />
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-text-cream font-medium text-sm">@{telegramBotUsername}</p>
+                                    <p className="text-text-muted-zinc text-xs mt-0.5">Your personal Ekam bot — tap to open in Telegram</p>
+                                </div>
+                                <a
+                                    href={`https://t.me/${telegramBotUsername}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-4 py-2 bg-[#0088cc]/15 hover:bg-[#0088cc]/25 text-[#0088cc] rounded-lg text-sm border border-[#0088cc]/20 transition-all"
+                                >
+                                    Open
+                                </a>
+                            </div>
+                            <p className="text-xs text-text-muted-zinc/60 leading-relaxed">
+                                All messages sent to @{telegramBotUsername} will be processed by the full Ekam council and will appear here in your chat history.
+                            </p>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        await disconnectTelegramBot();
+                                        setTelegramStatus('idle');
+                                        setTelegramBotUsername('');
+                                    } catch (err: any) {
+                                        setTelegramError(err.message || 'Failed to disconnect.');
+                                    }
+                                }}
+                                className="text-xs text-red-400/70 hover:text-red-400 transition-colors"
+                            >
+                                Disconnect bot
+                            </button>
+                        </div>
+                    )}
                 </section>
 
                 {/* Action Bar */}

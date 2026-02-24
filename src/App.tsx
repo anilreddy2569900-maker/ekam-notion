@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [chats, setChats] = useState<{ id: string, title: string, createdAt: any }[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
+  const [godMode, setGodMode] = useState(false); // ⚡ God Mode: all agents on PRO + medium thinking
 
   useEffect(() => {
     setBooted(true);
@@ -427,7 +428,8 @@ const App: React.FC = () => {
             location,
             mode,
             user.uid,
-            activeChatId
+            activeChatId,
+            godMode
           );
 
           // Wait for main response (this only blocks this background function)
@@ -619,6 +621,8 @@ const App: React.FC = () => {
                   <InputArea
                     onSend={handleSend}
                     disabled={isTyping}
+                    godMode={godMode}
+                    onGodModeToggle={() => setGodMode(prev => !prev)}
                   />
                 </main>
               </>

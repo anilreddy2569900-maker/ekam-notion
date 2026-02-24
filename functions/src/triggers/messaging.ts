@@ -4,17 +4,15 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { defineSecret } from 'firebase-functions/params';
 import { runSwarm } from '../swarm/engine';
-import { sendTelegramMessage } from '../telegram';
 import { sendWhatsAppMessage } from '../whatsapp';
 import { db } from '../firebase';
 
-const telegramToken = defineSecret('TELEGRAM_TOKEN');
 const whatsappToken = defineSecret('WHATSAPP_TOKEN');
 
 export const onMessagingTrigger = onDocumentCreated(
     {
         document: 'users/{userId}/chats/{platform}/messages/{messageId}',
-        secrets: [telegramToken, whatsappToken],
+        secrets: [whatsappToken],
         region: 'us-central1'
     },
     async (event) => {
@@ -24,12 +22,12 @@ export const onMessagingTrigger = onDocumentCreated(
         const data = snapshot.data();
         const { userId, platform } = event.params;
 
-        // We only trigger when the user sends a message.
-        // We do not want an infinite loop when the assistant responds.
+        // We only trigger when the user sends a message (no infinite loop).
         if (data.role !== 'user') return;
 
-        // We only care about external messaging platforms for this trigger
-        if (platform !== 'telegram' && platform !== 'whatsapp') return;
+        // Telegram is now handled inline in the telegramWebhook function.
+        // This trigger only handles WhatsApp and other future platforms.
+        if (platform !== 'whatsapp') return;
 
         const text = data.content;
         const tempImageId = data.tempImageId;
@@ -74,62 +72,6 @@ export const onMessagingTrigger = onDocumentCreated(
             let imageBase64: string | undefined = undefined;
             let imageMimeType: string | undefined = undefined;
             const attachments: { fileUri: string, mimeType: string }[] = [];
-
-            // --- TELEGRAM DOWNLOADS ---
-            if (platform === 'telegram' && (tempImageId || tempDocumentId)) {
-                const token = telegramToken.value();
-                const fileId = tempImageId || tempDocumentId;
-
-                // Get File Path from Telegram API
-                const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
-                const fileData = await fileRes.json();
-
-                if (fileData.ok) {
-                    const filePath = fileData.result.file_path;
-                    // Download File Bytes arrayBuffer
-                    const downloadRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
-                    const arrayBuffer = await downloadRes.arrayBuffer();
-
-                    if (tempImageId) {
-                        // Pass image directly inline to multimodal swarm if it's just a raw photo payload
-                        imageBase64 = Buffer.from(arrayBuffer).toString('base64');
-                        imageMimeType = 'image/jpeg';
-                    } else if (tempDocumentId) {
-                        // It's a document (like a PDF). Upload to Firebase Storage so Vault can use it.
-                        const buffer = Buffer.from(arrayBuffer);
-                        const timestamp = Date.now();
-                        const storagePath = `uploads/${userId}/${timestamp}_${incomingFileName}`;
-                        const storageBucket = getStorage().bucket('ekam-8bf91.firebasestorage.app');
-                        const fileRef = storageBucket.file(storagePath);
-
-                        await fileRef.save(buffer, {
-                            contentType: incomingMimeType || 'application/octet-stream',
-                        });
-                        logger.info(`[MessagingTrigger] PDF/Doc Uploaded to Storage: ${storagePath}`);
-
-                        // Make file public temporarily or use signed URL if required by frontend 
-                        // To match React app behavior seamlessly:
-                        await fileRef.makePublic();
-                        const fileUrl = fileRef.publicUrl();
-
-                        // Add Vault Entry
-                        await db.collection(`users/${userId}/vault`).add({
-                            fileName: incomingFileName,
-                            fileUrl: fileUrl,
-                            fileType: incomingMimeType?.includes('pdf') ? 'pdf' : 'other',
-                            size: buffer.length,
-                            uploadedAt: FieldValue.serverTimestamp(),
-                            storagePath: storagePath
-                        });
-
-                        // Add to attachments for Swarm Context
-                        attachments.push({
-                            fileUri: `gs://ekam-8bf91.firebasestorage.app/${storagePath}`,
-                            mimeType: incomingMimeType || 'application/pdf'
-                        });
-                    }
-                }
-            }
 
             // --- WHATSAPP DOWNLOADS ---
             if (platform === 'whatsapp' && (tempImageId || tempDocumentId)) {
@@ -251,15 +193,8 @@ export const onMessagingTrigger = onDocumentCreated(
                 }
             }
 
-            // 5. Send Response back to Platform
-            if (platform === 'telegram') {
-                const telegramId = userProfile.telegramId;
-                if (telegramId) {
-                    await sendTelegramMessage(telegramId, aiResponse, telegramToken.value());
-                } else {
-                    logger.error(`[MessagingTrigger] No telegramId found in profile for user ${userId}`);
-                }
-            } else if (platform === 'whatsapp') {
+            // 5. Send Response back to Platform (WhatsApp only — Telegram handled in webhook)
+            if (platform === 'whatsapp') {
                 // The whatsapp trigger doesn't have the businessPhoneNumberId easily accessible here.
                 // We could store it in the chat metadata, but for now we'll use a hardcoded or environment one.
                 // Wait, we can fetch businessPhoneNumberId from the chat metadata if we save it there.
@@ -298,8 +233,8 @@ export const onMessagingTrigger = onDocumentCreated(
             try {
                 const profileSnapshot = await db.doc(`users/${userId}/profile/health_data`).get();
                 const userProfileFallback = profileSnapshot.exists ? profileSnapshot.data() : undefined;
-                if (platform === 'telegram' && userProfileFallback && userProfileFallback.telegramId) {
-                    await sendTelegramMessage(userProfileFallback.telegramId, "⚠️ I encountered an error processing your request. Please try again.", telegramToken.value());
+                if (platform === 'whatsapp' && userProfileFallback?.phoneNumber) {
+                    logger.error(`[MessagingTrigger] Fallback: WhatsApp error for user ${userId}`);
                 }
             } catch (fallbackError) {
                 logger.error(`[MessagingTrigger] Fallback failed`, fallbackError);

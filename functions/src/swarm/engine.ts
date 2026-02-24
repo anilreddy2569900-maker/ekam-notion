@@ -7,7 +7,7 @@
 
 import { GenerativeModel, GenerateContentRequest, GenerateContentResult, Part } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel } from '../utils/vertexai';
+import { getGenerativeModel, getThinkingConfig } from '../utils/vertexai';
 import { getCurrentWeather, formatWeatherForContext } from '../utils/weather';
 import { AGENT_TIERS, AI_CONFIG } from '../config/ai_config';
 import { AGENT_PROMPTS } from './agents';
@@ -41,13 +41,26 @@ export function formatProfileContext(profile?: UserProfile): string {
         parts.push(`Age: ${profile.age}`);
     } else if (profile.dateOfBirth) {
         parts.push(`Date of Birth: ${profile.dateOfBirth}`);
-        // Calculate age dynamically if not explicitly provided
+        // Calculate exact age dynamically
         const dob = new Date(profile.dateOfBirth);
         if (!isNaN(dob.getTime())) {
-            const diffMs = Date.now() - dob.getTime();
-            const ageDate = new Date(diffMs);
-            const calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970);
-            parts.push(`Calculated Age: ${calculatedAge}`);
+            const now = new Date();
+            let years = now.getFullYear() - dob.getFullYear();
+            let months = now.getMonth() - dob.getMonth();
+            let days = now.getDate() - dob.getDate();
+
+            if (days < 0) {
+                months--;
+                // Get days in previous month
+                days += new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+            }
+            if (months < 0) {
+                years--;
+                months += 12;
+            }
+
+            parts.push(`Current Date (System Context): ${now.toISOString().split('T')[0]}`);
+            parts.push(`Exact Calculated Age: ${years} years, ${months} months, and ${days} days`);
         }
     }
     if (profile.height) parts.push(`Height: ${profile.height}cm`);
@@ -113,32 +126,28 @@ async function runAgent(
     location?: UserLocation,
     imageBase64?: string,
     imageMimeType?: string,
-    peerContext?: string, // New: Context from other agents for Phase 2
-    attachments?: { fileUri: string; mimeType: string }[] // New: Multimodal Files
+    peerContext?: string, // Context from other agents for Phase 2
+    attachments?: { fileUri: string; mimeType: string }[], // Multimodal Files
+    godMode?: boolean // When true: override to PRO tier + medium thinking
 ): Promise<AgentResult> {
     const systemInstruction = AGENT_PROMPTS[agentKey];
 
-    // Get appropriate model type based on agent complexity (TIERED SYSTEM)
-    // Configured in ai_config.ts
-    const tier = AGENT_TIERS[agentKey] || 'FLASH'; // Default to Flash if missing
+    // God Mode: force all agents to PRO tier (except environment stays FLASH for speed)
+    const tier = godMode && agentKey !== 'environment'
+        ? 'PRO'
+        : (AGENT_TIERS[agentKey] || 'FLASH');
 
     let model: GenerativeModel;
 
     if (agentKey === 'environment') {
-        // model = getGroundedModel(systemInstruction); 
-        // SWITCH TO STANDARD MODEL (Weather injected via context now)
         model = getGenerativeModel({
             systemInstruction,
             tier: 'FLASH', // Environment is always Flash
-            thinkingLevel: undefined
         });
     } else {
-        // Use the Tiered Factory
-        // For PRO tier, enforce thinking level if needed
         model = getGenerativeModel({
             systemInstruction,
             tier,
-            thinkingLevel: undefined // Default to undefined (let model factory decide - which defaults to 'high')
         });
     }
 
@@ -228,11 +237,25 @@ Limit to 1 question MAX.
 
     try {
         logger.info(`[Agent] Trying ${agentKey} with Tier ${tier} (${usedModelId})...`);
+        // Opt 4: Reduced token limits — specialists write concise clinical notes (not essays)
+        // Orchestrator receives cleaner, more signal-dense input this way.
+        const agentTokens = agentKey === 'environment' ? 2000
+            : (tier === 'PRO' ? 2000 : 1500);
+
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts }],
             generationConfig: {
-                maxOutputTokens: agentKey === 'environment' ? 4096 : 3000, // Boost Environment agent tokens
+                maxOutputTokens: agentTokens,
                 temperature: 1,
+                // Thinking config per agent:
+                // - God Mode agents: medium thinking (PRO on all agents)
+                // - Dermatologist (PRO): medium thinking
+                // - FLASH agents: high thinking
+                ...(godMode && agentKey !== 'environment' && agentKey !== 'dermatologist'
+                    ? getThinkingConfig('medium')
+                    : agentKey === 'dermatologist'
+                        ? getThinkingConfig('medium')
+                        : tier === 'FLASH' ? getThinkingConfig('high') : {}),
             }
         });
 
@@ -344,8 +367,11 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
         const result = await generateWithRetry(model, {
             contents: [{ role: 'user', parts: [{ text: promptText }] }],
             generationConfig: {
-                maxOutputTokens: 4096,
+                maxOutputTokens: 3000,
                 temperature: 1,
+                // High thinking: Orchestrator connects all specialist dots, resolves conflicts, and
+                // synthesizes a final user-facing answer — this is where depth matters most.
+                ...getThinkingConfig('high'),
             }
         }, 5, 2000);
 
@@ -355,7 +381,12 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
             logger.info(`[Orchestrator] Token Usage:`, JSON.stringify(result.response.usageMetadata));
         }
 
-        return response?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        // Filter out "thought" parts — when includeThoughts is true they appear first and
+        // parts[0].text would return the internal monologue instead of the actual answer.
+        const allParts = response?.candidates?.[0]?.content?.parts || [];
+        const realTextPart = allParts.find((p: any) => !p.thought && p.text);
+        return realTextPart?.text ||
+            allParts[0]?.text ||
             "I apologize, but I'm having trouble synthesizing the analysis. Please try again.";
     } catch (error) {
         console.warn(`[Orchestrator] Primary Tier failed, falling back to Gemini 3 Flash...`);
@@ -397,7 +428,8 @@ export async function runSwarm(
     chatHistorySummary?: string,
     mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL',
     attachments?: { fileUri: string; mimeType: string }[],
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    godMode?: boolean // When true: all agents use PRO tier + medium thinking
 ): Promise<SwarmResult> {
 
     // Safe progress helper — never let progress writes break the main flow
@@ -561,7 +593,8 @@ export async function runSwarm(
             agent !== 'environment' ? imageBase64 : undefined,
             agent !== 'environment' ? imageMimeType : undefined,
             undefined,
-            attachments
+            attachments,
+            godMode
         );
         // Track individual agent completion for live progress
         promise.then(result => {
@@ -573,45 +606,11 @@ export async function runSwarm(
     });
 
     const phase1Results = await Promise.all(phase1Promises);
-    const successfulPhase1 = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
-    logger.info(`[Swarm] Phase 1: ${successfulPhase1.length}/${phase1Promises.length} agents responded`);
-
-    // 4. ROUND TABLE PHASE (PHASE 2 - PEER REVIEW)
-    let finalAgentNotes = successfulPhase1;
-
-    if (successfulPhase1.length > 1) {
-        logger.info('[Swarm] Starting Phase 2: Peer Review (Round Table)...');
-        // Reset agent progress for Phase 2
-        selectedAgents.forEach(a => { agentProgress[a] = { status: 'thinking' }; });
-        await reportProgress({ phase: 'peer_review', selectedAgents, agents: { ...agentProgress } });
-
-        const phase2Promises = successfulPhase1.map(currentAgentResult => {
-            const peers = successfulPhase1.filter(r => r.agent !== currentAgentResult.agent);
-            const peerContext = peers.map(p => `**${p.agent.toUpperCase()}:** ${p.note.substring(0, 800)}...`).join('\n\n');
-
-            const promise = runAgent(
-                currentAgentResult.agent,
-                query,
-                contextString,
-                location,
-                currentAgentResult.agent !== 'environment' ? imageBase64 : undefined,
-                currentAgentResult.agent !== 'environment' ? imageMimeType : undefined,
-                peerContext,
-                attachments
-            );
-            // Track individual completion
-            promise.then(result => {
-                const snippet = result.note.substring(0, 120).replace(/\n/g, ' ').trim();
-                agentProgress[currentAgentResult.agent] = { status: 'done', snippet: snippet + '...' };
-                reportProgress({ phase: 'peer_review', selectedAgents, agents: { ...agentProgress } });
-            }).catch(() => { });
-            return promise;
-        });
-
-        const phase2Results = await Promise.all(phase2Promises);
-        finalAgentNotes = phase2Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
-        logger.info('[Swarm] Phase 2 Complete.');
-    }
+    const finalAgentNotes = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
+    logger.info(`[Swarm] Phase 1: ${finalAgentNotes.length}/${phase1Promises.length} agents responded`);
+    // Opt 1: Phase 2 (Round Table peer review) removed.
+    // The Orchestrator already performs conflict resolution as part of its synthesis instructions.
+    // Removing Phase 2 saves ~20-25s and actually improves note quality (no echo-chamber contamination).
 
     // 5. ORCHESTRATOR SYNTHESIZES
     let finalResponse: string;

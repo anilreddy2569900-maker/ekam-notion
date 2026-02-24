@@ -21,8 +21,7 @@ import { onFileUpload } from './triggers/storage';
 // WhatsApp Trigger
 import { whatsappWebhook } from './whatsapp';
 
-// Telegram Trigger
-import { telegramWebhook } from './telegram';
+import { telegramWebhook, registerTelegramBot, disconnectTelegramBot, onTelegramMessageSync } from './telegram';
 
 // Messaging Async Trigger
 import { onMessagingTrigger } from './triggers/messaging';
@@ -30,7 +29,7 @@ import { onMessagingTrigger } from './triggers/messaging';
 // Summary Generation Function
 import { generateClinicalSummary } from './summary';
 
-export { onFileUpload, whatsappWebhook, telegramWebhook, onMessagingTrigger, generateClinicalSummary };
+export { onFileUpload, whatsappWebhook, telegramWebhook, onMessagingTrigger, generateClinicalSummary, registerTelegramBot, disconnectTelegramBot, onTelegramMessageSync };
 
 /**
  * Main callable function for processing user messages
@@ -62,7 +61,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
             location,
             mode,
             userId,
-            chatId
+            chatId,
+            godMode
         } = request.data;
 
         // Validate input
@@ -82,13 +82,34 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
             if (imageUrl) {
                 try {
                     const imageResponse = await fetch(imageUrl);
-                    const imageBuffer = await imageResponse.arrayBuffer();
-                    imageBase64 = Buffer.from(imageBuffer).toString('base64');
-                    imageMimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
-                    console.log('[Ekam] Image fetched and converted');
+
+                    // Validate response
+                    if (!imageResponse.ok) {
+                        console.warn(`[Ekam] Image fetch failed with status ${imageResponse.status}`);
+                    } else {
+                        const contentType = imageResponse.headers.get('content-type') || '';
+
+                        // Only accept actual image content types
+                        if (!contentType.startsWith('image/')) {
+                            console.warn(`[Ekam] Image URL returned non-image content-type: ${contentType}. Skipping.`);
+                        } else {
+                            const imageBuffer = await imageResponse.arrayBuffer();
+
+                            // Reject tiny responses (likely error pages) and oversized ones
+                            if (imageBuffer.byteLength < 100) {
+                                console.warn('[Ekam] Image too small, likely invalid. Skipping.');
+                            } else if (imageBuffer.byteLength > 10 * 1024 * 1024) {
+                                console.warn('[Ekam] Image too large (>10MB). Skipping.');
+                            } else {
+                                imageBase64 = Buffer.from(imageBuffer).toString('base64');
+                                imageMimeType = contentType;
+                                console.log(`[Ekam] Image fetched and converted (${Math.round(imageBuffer.byteLength / 1024)}KB, ${contentType})`);
+                            }
+                        }
+                    }
                 } catch (imageError) {
                     console.error('[Ekam] Failed to fetch image:', imageError);
-                    // Continue without image
+                    // Continue without image — imageBase64 stays undefined
                 }
             }
 
@@ -140,7 +161,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                 chatHistorySummary,
                 mode,
                 attachments,
-                onProgress
+                onProgress,
+                godMode
             );
 
             // Clean up thinking doc

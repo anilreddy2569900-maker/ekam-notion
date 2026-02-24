@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Plus, X } from 'lucide-react';
+import { ArrowUp, Plus, X, Zap } from 'lucide-react';
 
 interface InputAreaProps {
     onSend: (text: string, file?: File) => Promise<void> | void;
     disabled?: boolean;
+    godMode?: boolean;
+    onGodModeToggle?: () => void;
 }
 
-export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
+export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, godMode, onGodModeToggle }) => {
     const [text, setText] = useState('');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -95,6 +97,20 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
                         title="Upload Image"
                     >
                         <Plus size={20} strokeWidth={2.5} />
+                    </button>
+
+                    {/* God Mode Toggle */}
+                    <button
+                        onClick={onGodModeToggle}
+                        disabled={disabled}
+                        title={godMode ? 'God Mode ON — All agents use PRO + medium thinking' : 'God Mode OFF — Click to activate'}
+                        className={`p-2.5 rounded-full mb-0.5 transition-all duration-300 ${disabled ? 'opacity-30 cursor-not-allowed' :
+                                godMode
+                                    ? 'text-amber-400 bg-amber-400/10 ring-1 ring-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+                                    : 'text-text-muted-zinc hover:text-amber-400 hover:bg-amber-400/5'
+                            }`}
+                    >
+                        <Zap size={18} strokeWidth={2.5} fill={godMode ? 'currentColor' : 'none'} />
                     </button>
 
                     {/* Text Input */}

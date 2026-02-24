@@ -86,4 +86,5 @@ export interface ProcessMessageRequest {
     mode?: 'SIMPLE' | 'CRITICAL';
     userId?: string;
     chatId?: string;
+    godMode?: boolean; // When true: all agents use PRO tier + medium thinking
 }

@@ -99,7 +99,7 @@ export async function classifyAndRoute(
     try {
         const model: GenerativeModel = getGenerativeModel({
             systemInstruction,
-            model: 'gemini-flash-lite-latest', // Ultra-fast + ultra-cheap for classification
+            tier: 'LITE', // Gemini Flash Lite — ultra-fast for classification (outputs tiny JSON only)
         });
 
         const contents = [{ role: 'user', parts: [] as any[] }];
@@ -144,9 +144,10 @@ export async function classifyAndRoute(
         const validAgents = new Set<AgentKey>(['vitalist', 'dermatologist', 'metabolic', 'somatic', 'neuro', 'endocrine', 'guardian', 'orchestrator']);
         selectedAgents = selectedAgents.filter(a => validAgents.has(a));
 
-        // ALWAYS include Environment (Context) and Orchestrator (Synthesis)
+        // ALWAYS include Environment (Context) for environmental data
         if (!selectedAgents.includes('environment')) selectedAgents.push('environment');
-        if (!selectedAgents.includes('orchestrator')) selectedAgents.push('orchestrator');
+        // NOTE: Orchestrator is intentionally NOT added here — it runs separately as the final synthesizer,
+        // not as a Phase 1/2 specialist. This avoids a redundant slow PRO call in the agent pool.
 
         // FALLBACK: If no agents selected, default to Guardian (Safety)
         if (selectedAgents.length <= 2) { // Only env + orchestrator

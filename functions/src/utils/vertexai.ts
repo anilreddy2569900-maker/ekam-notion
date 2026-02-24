@@ -54,7 +54,10 @@ export interface GenerativeModelOptions {
 }
 
 /**
- * Get a generative model with automatic client routing
+ * Get a generative model with automatic client routing.
+ * NOTE: thinkingConfig is intentionally NOT set here.
+ * It must be passed per-request in generationConfig to avoid SDK conflicts.
+ * Use getThinkingConfig() to get the correct thinkingConfig object.
  */
 export function getGenerativeModel(options: GenerativeModelOptions): GenerativeModel {
     // 1. Determine Tier
@@ -67,25 +70,27 @@ export function getGenerativeModel(options: GenerativeModelOptions): GenerativeM
     // 3. Select Client based on the resolved model ID
     const client = getModelClient(modelId);
 
-    // 4. Build Configuration
+    // 4. Build Configuration (NO generationConfig here — set per-request instead)
     const modelConfig: any = {
         model: modelId,
         systemInstruction: options.systemInstruction,
         tools: options.tools,
     };
 
-    // Apply Thinking Config if requested or if implied by PRO tier (Gemini 3.1 Pro)
-    // The user specifically requested "High Thinking" for Gemini 3.1 Pro.
-    if (options.thinkingLevel || (tier === 'PRO' && modelId.includes('gemini-3'))) {
-        modelConfig.generationConfig = {
-            thinkingConfig: {
-                thinkingLevel: options.thinkingLevel || 'high', // Default to high
-                includeThoughts: true // Usually required when thinking is enabled
-            }
-        };
-    }
-
     return client.getGenerativeModel(modelConfig);
+}
+
+/**
+ * Returns the thinkingConfig block for use inside a per-request generationConfig.
+ * Only call this for PRO-tier models (gemini-3.1-pro-preview) that support thinking.
+ */
+export function getThinkingConfig(level: 'low' | 'medium' | 'high' = 'high'): object {
+    return {
+        thinkingConfig: {
+            thinkingLevel: level,
+            includeThoughts: false, // Model thinks internally but thoughts are NOT prepended to response parts
+        }
+    };
 }
 
 /**

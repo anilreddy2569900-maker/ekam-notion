@@ -1,13 +1,18 @@
 /**
  * EKAM SWARM - Engine
  * 
- * Core swarm execution - simplified for reliability
- * Runs multiple specialist agents in parallel and synthesizes their insights
+ * Core swarm execution — runs multiple specialist agents in parallel
+ * and synthesizes their insights via SiliconFlow.
+ * 
+ * Architecture:
+ *   - CORE (gpt-oss-120b): Orchestrator + all text specialists
+ *   - LITE (Llama 8B): Express Lane, Environment
+ *   - DERM (Qwen VL 7B): Default dermatologist (vision)
+ *   - DERM_ESCALATION (GLM-4.5V): Heavy derm only on escalation
  */
 
-import { GenerativeModel, GenerateContentRequest, GenerateContentResult, Part } from '@google-cloud/vertexai';
-import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel, getThinkingConfig } from '../utils/vertexai';
+import * as logger from '../utils/logger';
+import { chatCompletion, chatCompletionWithRetry, buildVisionMessage, ChatMessage } from '../utils/siliconflow';
 import { getCurrentWeather, formatWeatherForContext } from '../utils/weather';
 import { AGENT_TIERS, AI_CONFIG } from '../config/ai_config';
 import { AGENT_PROMPTS } from './agents';
@@ -19,37 +24,7 @@ import {
     UserProfile,
     UserLocation
 } from './types';
-
-// ============================================================================
-// GLOBAL CONCURRENCY CONTROL — SCALABILITY
-// Limits total simultaneous Vertex AI API calls across ALL requests.
-// Prevents RESOURCE_EXHAUSTED (429) under heavy load.
-// ============================================================================
-const MAX_CONCURRENT_AI_CALLS = 50; // Tune based on your Vertex AI quota
-let activeAICalls = 0;
-const aiCallQueue: Array<{ resolve: () => void }> = [];
-
-async function acquireAISlot(): Promise<void> {
-    if (activeAICalls < MAX_CONCURRENT_AI_CALLS) {
-        activeAICalls++;
-        return;
-    }
-    // Wait in queue until a slot opens
-    return new Promise<void>((resolve) => {
-        aiCallQueue.push({ resolve });
-    });
-}
-
-function releaseAISlot(): void {
-    activeAICalls--;
-    if (aiCallQueue.length > 0 && activeAICalls < MAX_CONCURRENT_AI_CALLS) {
-        const next = aiCallQueue.shift();
-        if (next) {
-            activeAICalls++;
-            next.resolve();
-        }
-    }
-}
+import { ModelTier } from '../config/ai_config';
 
 // Progress callback type for live thinking stream
 export type ProgressCallback = (update: {
@@ -57,8 +32,6 @@ export type ProgressCallback = (update: {
     agents?: Record<string, { status: 'thinking' | 'done'; snippet?: string }>;
     selectedAgents?: string[];
 }) => Promise<void>;
-
-// Weather data is now handled by Google Search grounding in the environment agent
 
 /**
  * Format user profile into a context string for agents
@@ -82,7 +55,6 @@ export function formatProfileContext(profile?: UserProfile): string {
 
             if (days < 0) {
                 months--;
-                // Get days in previous month
                 days += new Date(now.getFullYear(), now.getMonth(), 0).getDate();
             }
             if (months < 0) {
@@ -110,7 +82,6 @@ export function formatProfileContext(profile?: UserProfile): string {
 
     Object.entries(profile).forEach(([key, value]) => {
         if (!standardKeys.includes(key) && typeof value === 'string' && value.trim().length > 0) {
-            // Format key from camelCase to Title Case (e.g., 'injuryHistory' -> 'Injury History')
             const readableKey = key.replace(/([A-Z])/g, ' $1').trim();
             const formattedKey = readableKey.charAt(0).toUpperCase() + readableKey.slice(1);
             dynamicFacts.push(`- **${formattedKey}:** ${value}`);
@@ -125,72 +96,9 @@ export function formatProfileContext(profile?: UserProfile): string {
     return parts.length > 0 ? `**User Profile:**\n${parts.join('\n')}` : '';
 }
 
-/**
- * Circuit Breaker state — fast-fails when Vertex AI is overwhelmed
- */
-let circuitBreakerFailures = 0;
-let circuitBreakerResetTime = 0;
-const CIRCUIT_BREAKER_THRESHOLD = 5; // After 5 consecutive 429s, open circuit
-const CIRCUIT_BREAKER_COOLDOWN_MS = 15000; // Wait 15s before retrying
-
-/**
- * Retry wrapper for Vertex AI generation with global concurrency control
- * - Acquires a concurrency slot before calling Vertex AI
- * - Uses circuit breaker to fast-fail when API is overwhelmed
- * - Shorter retry delays to minimize idle billing time
- */
-async function generateWithRetry(model: GenerativeModel, request: GenerateContentRequest, maxRetries = 3, initialDelay = 500): Promise<GenerateContentResult> {
-    // Circuit breaker check — fast-fail if API is overwhelmed
-    if (circuitBreakerFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        if (Date.now() < circuitBreakerResetTime) {
-            throw new Error(`[CircuitBreaker] Vertex AI overwhelmed. Fast-failing. Retry after ${Math.ceil((circuitBreakerResetTime - Date.now()) / 1000)}s.`);
-        }
-        // Cooldown elapsed — reset and try again
-        circuitBreakerFailures = 0;
-        logger.info('[CircuitBreaker] Cooldown elapsed, resetting circuit breaker.');
-    }
-
-    let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-        // Acquire global concurrency slot (waits if at capacity)
-        await acquireAISlot();
-        try {
-            const result = await model.generateContent(request);
-
-            // Check for safety filter blocks (FinishReason.SAFETY)
-            const candidate = result.response.candidates?.[0];
-            if (candidate?.finishReason === 'SAFETY') {
-                const ratings = candidate.safetyRatings?.map((r: any) => `${r.category}: ${r.probability}`).join(', ');
-                logger.warn(`[Engine] Safety block detected. Reason: SAFETY. Ratings: ${ratings}`);
-                throw new Error('SAFETY_BLOCK');
-            }
-
-            // Success — reset circuit breaker
-            circuitBreakerFailures = 0;
-            return result;
-        } catch (error: any) {
-            lastError = error;
-
-            // Handle safety blocks as specific errors
-            if (error.message === 'SAFETY_BLOCK') {
-                throw error; // Propagate safety blocks immediately
-            }
-
-            // Check for 429 Resource exhausted
-            if (error.code === 429 || error.status === 'RESOURCE_EXHAUSTED' || error.message?.includes('429')) {
-                circuitBreakerFailures++;
-                circuitBreakerResetTime = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
-                logger.warn(`[Engine] Rate limit hit (${circuitBreakerFailures}/${CIRCUIT_BREAKER_THRESHOLD}). Retrying in ${initialDelay * Math.pow(2, i)}ms...`);
-                await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, i)));
-                continue;
-            }
-            throw error; // Rethrow other errors
-        } finally {
-            releaseAISlot(); // Always release the slot
-        }
-    }
-    throw lastError;
-}
+// ============================================================================
+// AGENT RUNNER
+// ============================================================================
 
 /**
  * Run a single specialist agent
@@ -202,29 +110,20 @@ async function runAgent(
     location?: UserLocation,
     imageBase64?: string,
     imageMimeType?: string,
-    peerContext?: string, // Context from other agents for Phase 2
-    attachments?: { fileUri: string; mimeType: string }[], // Multimodal Files
-    godMode?: boolean // When true: override to PRO tier + medium thinking
+    peerContext?: string,
+    attachments?: { fileUri: string; mimeType: string }[],
+    godMode?: boolean
 ): Promise<AgentResult> {
     const systemInstruction = AGENT_PROMPTS[agentKey];
 
-    // God Mode: force all agents to PRO tier (except environment stays FLASH for speed)
-    const tier = godMode && agentKey !== 'environment'
-        ? 'PRO'
-        : (AGENT_TIERS[agentKey] || 'FLASH');
-
-    let model: GenerativeModel;
-
-    if (agentKey === 'environment') {
-        model = getGenerativeModel({
-            systemInstruction,
-            tier: 'FLASH', // Environment is always Flash
-        });
+    // Determine tier: God Mode forces CORE on everything except environment
+    let tier: ModelTier;
+    if (agentKey === 'dermatologist') {
+        tier = 'DERM'; // Vision model for derm
+    } else if (godMode && agentKey !== 'environment') {
+        tier = 'CORE';
     } else {
-        model = getGenerativeModel({
-            systemInstruction,
-            tier,
-        });
+        tier = AGENT_TIERS[agentKey] || 'CORE';
     }
 
     const usedModelId = AI_CONFIG.models[tier];
@@ -241,7 +140,7 @@ async function runAgent(
         }
     }
 
-    // Build prompt text with enhanced deep thinking prompt
+    // Build prompt text
     const promptText = `
 **User Query:** ${userMessage}
 
@@ -272,7 +171,7 @@ Based on what you see, what is the underlying issue or root cause?
 What should they DO right now? Provide specific advice.
 
 ### STEP 3 - CROSS-DOMAIN CONNECTIONS
-${peerContext ? '**CRITICAL:** specificially reference your colleagues findings.' : 'Consider the bigger picture.'}
+${peerContext ? '**CRITICAL:** specifically reference your colleagues findings.' : 'Consider the bigger picture.'}
 
 ### STEP 4 - REFINEMENT (OPTIONAL)
 State your working hypothesis.
@@ -284,88 +183,54 @@ Limit to 1 question MAX.
 **Remember:** Think like you're presenting at a case conference. Be thorough but clear.
 `;
 
-    // Build request content
-    const parts: Part[] = [{ text: promptText }];
-
-    // Add image if provided (Legacy/Direct Image)
-    if (imageBase64 && imageMimeType) {
-        parts.push({
-            inlineData: {
-                data: imageBase64,
-                mimeType: imageMimeType
-            }
-        });
-        logger.info(`[Agent] Image attached for ${agentKey}`);
-    }
-
-    // Add Attachments (Smart Selection)
-    if (attachments && attachments.length > 0) {
-        attachments.forEach(file => {
-            parts.push({
-                fileData: {
-                    fileUri: file.fileUri,
-                    mimeType: file.mimeType
-                }
-            });
-        });
-        logger.info(`[Agent] ${agentKey} received ${attachments.length} vault files.`);
-    }
+    // Token limits
+    const agentTokens = agentKey === 'environment' ? 2000 : 2000;
 
     try {
         logger.info(`[Agent] Trying ${agentKey} with Tier ${tier} (${usedModelId})...`);
-        // Opt 4: Reduced token limits — specialists write concise clinical notes (not essays)
-        // Orchestrator receives cleaner, more signal-dense input this way.
-        const agentTokens = agentKey === 'environment' ? 2000
-            : (tier === 'PRO' ? 2000 : 1500);
 
-        const result = await generateWithRetry(model, {
-            contents: [{ role: 'user', parts }],
-            generationConfig: {
-                maxOutputTokens: agentTokens,
-                temperature: 1,
-                // Thinking config per agent:
-                // - God Mode agents: medium thinking (PRO on all agents)
-                // - Dermatologist (PRO): medium thinking
-                // - FLASH agents: high thinking
-                ...(godMode && agentKey !== 'environment' && agentKey !== 'dermatologist'
-                    ? getThinkingConfig('medium')
-                    : agentKey === 'dermatologist'
-                        ? getThinkingConfig('medium')
-                        : tier === 'FLASH' ? getThinkingConfig('high') : {}),
-            }
-        });
-
-        const response = result.response;
-        const textResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-        if (!textResponse) throw new Error('Empty response');
-
-        logger.info(`[Agent] ${agentKey} completed analysis`);
-        if (result.response?.usageMetadata) {
-            logger.info(`[Agent] ${agentKey} Token Usage:`, JSON.stringify(result.response.usageMetadata));
+        // Build user messages
+        let messages: ChatMessage[];
+        if (imageBase64 && imageMimeType && agentKey !== 'environment') {
+            // Vision message for image-capable agents
+            messages = [buildVisionMessage(promptText, imageBase64, imageMimeType)];
+        } else {
+            messages = [{ role: 'user', content: promptText }];
         }
 
-        return { agent: agentKey, note: textResponse };
+        const result = await chatCompletionWithRetry({
+            tier,
+            systemInstruction,
+            messages,
+            maxTokens: agentTokens,
+            temperature: 1,
+        });
+
+        if (!result.text) throw new Error('Empty response');
+
+        logger.info(`[Agent] ${agentKey} completed analysis`);
+        if (result.usage) {
+            logger.info(`[Agent] ${agentKey} Token Usage:`, JSON.stringify(result.usage));
+        }
+
+        return { agent: agentKey, note: result.text };
 
     } catch (error) {
-        logger.warn(`[Agent] ${agentKey} primary model (${usedModelId}) failed, falling back to Gemini 3 Flash...`);
+        logger.warn(`[Agent] ${agentKey} primary model (${usedModelId}) failed, falling back to LITE...`);
 
         try {
-            // Fallback to Gemini 3 Flash (Global)
-            const fallbackModel = getGenerativeModel({ systemInstruction, tier: 'FLASH' });
-
-            const result = await generateWithRetry(fallbackModel, {
-                contents: [{ role: 'user', parts }],
-                generationConfig: {
-                    maxOutputTokens: 3000,
-                    temperature: 1,
-                }
+            // Fallback to LITE
+            const result = await chatCompletionWithRetry({
+                tier: 'LITE',
+                systemInstruction,
+                messages: [{ role: 'user', content: promptText }],
+                maxTokens: 3000,
+                temperature: 1,
             });
 
-            const textResponse = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (textResponse) {
+            if (result.text) {
                 logger.info(`[Agent] ${agentKey} fallback completed successfully`);
-                return { agent: agentKey, note: textResponse };
+                return { agent: agentKey, note: result.text };
             }
         } catch (fallbackError) {
             logger.error(`[Agent] ${agentKey} fallback also failed:`, fallbackError);
@@ -374,6 +239,102 @@ Limit to 1 question MAX.
         return { agent: agentKey, note: `[${agentKey} temporarily unavailable]` };
     }
 }
+
+// ============================================================================
+// TWO-TIER DERMATOLOGY
+// ============================================================================
+
+/**
+ * Run the Dermatologist with escalation logic:
+ * 1. Always run Qwen VL (DERM tier) first
+ * 2. If confidence is low or guardian flagged high-risk → escalate to GLM-4.5V
+ */
+async function runDermatologyPipeline(
+    userMessage: string,
+    userContext?: string,
+    location?: UserLocation,
+    imageBase64?: string,
+    imageMimeType?: string,
+    guardianFlaggedHighRisk?: boolean,
+): Promise<AgentResult> {
+    // Phase 1: Default Derm (Qwen VL 7B) — cheap, fast
+    const phase1Result = await runAgent(
+        'dermatologist',
+        userMessage,
+        userContext,
+        location,
+        imageBase64,
+        imageMimeType,
+    );
+
+    // Check if escalation is needed
+    const needsEscalation =
+        guardianFlaggedHighRisk ||
+        phase1Result.note.toLowerCase().includes('unsure') ||
+        phase1Result.note.toLowerCase().includes('unclear') ||
+        phase1Result.note.toLowerCase().includes('cannot determine') ||
+        phase1Result.note.toLowerCase().includes('low confidence') ||
+        phase1Result.note.toLowerCase().includes('needs further');
+
+    if (!needsEscalation || !imageBase64) {
+        return phase1Result;
+    }
+
+    // Phase 2: Escalation Derm (GLM-4.5V) — heavy, SOTA
+    logger.info('[Derm] Escalating to GLM-4.5V for deeper analysis...');
+
+    try {
+        const escalationPrompt = `
+You are the **Senior Dermatology Consultant** at Ekam Health performing an ESCALATED analysis.
+
+A junior colleague has already reviewed this case but was uncertain. Here is their initial assessment:
+
+---
+**JUNIOR ASSESSMENT:**
+${phase1Result.note}
+---
+
+Now perform YOUR independent, deeper analysis. Look for:
+1. More specific differential diagnoses
+2. Subtle patterns the junior may have missed
+3. Cross-reference with patient history (age, location, comorbidities)
+
+Provide your expert clinical note.
+
+**User Query:** ${userMessage}
+${userContext || ''}
+`;
+
+        const messages = imageBase64 && imageMimeType
+            ? [buildVisionMessage(escalationPrompt, imageBase64, imageMimeType)]
+            : [{ role: 'user' as const, content: escalationPrompt }];
+
+        const escalationResult = await chatCompletionWithRetry({
+            tier: 'DERM_ESCALATION',
+            systemInstruction: AGENT_PROMPTS['dermatologist'],
+            messages,
+            maxTokens: 3000,
+            temperature: 0.7,
+        });
+
+        if (escalationResult.text) {
+            logger.info('[Derm] Escalation completed successfully');
+            return {
+                agent: 'dermatologist',
+                note: `**[ESCALATED ANALYSIS — GLM-4.5V]**\n\n${escalationResult.text}`,
+            };
+        }
+    } catch (error) {
+        logger.error('[Derm] Escalation failed, using Phase 1 result:', error);
+    }
+
+    // Return Phase 1 result if escalation fails
+    return phase1Result;
+}
+
+// ============================================================================
+// ORCHESTRATOR
+// ============================================================================
 
 /**
  * Run the Orchestrator to synthesize all agent insights into a cohesive response
@@ -384,14 +345,6 @@ async function runOrchestrator(
     userContext?: string
 ): Promise<string> {
     const systemInstruction = AGENT_PROMPTS['orchestrator'];
-
-    // Orchestrator uses PRO + High Thinking for maximum synthesis quality
-    const tier = AGENT_TIERS['orchestrator'];
-    const model: GenerativeModel = getGenerativeModel({
-        systemInstruction,
-        tier,
-        thinkingLevel: 'high'
-    });
 
     // Format agent notes for orchestrator
     const notesFormatted = agentNotes
@@ -439,49 +392,36 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
 `;
 
     try {
-        logger.info(`[Orchestrator] Trying with Tier ${tier} (PRO + High Thinking)...`);
-        const result = await generateWithRetry(model, {
-            contents: [{ role: 'user', parts: [{ text: promptText }] }],
-            generationConfig: {
-                maxOutputTokens: 3000,
-                temperature: 1,
-                // High thinking: Orchestrator connects all specialist dots, resolves conflicts, and
-                // synthesizes a final user-facing answer — this is where depth matters most.
-                ...getThinkingConfig('high'),
-            }
+        logger.info(`[Orchestrator] Synthesizing with CORE tier...`);
+        const result = await chatCompletionWithRetry({
+            tier: 'CORE',
+            systemInstruction,
+            messages: [{ role: 'user', content: promptText }],
+            maxTokens: 3000,
+            temperature: 1,
         }, 5, 2000);
 
-        const response = result.response;
-
-        if (result.response?.usageMetadata) {
-            logger.info(`[Orchestrator] Token Usage:`, JSON.stringify(result.response.usageMetadata));
+        if (result.usage) {
+            logger.info(`[Orchestrator] Token Usage:`, JSON.stringify(result.usage));
         }
 
-        // Filter out "thought" parts — when includeThoughts is true they appear first and
-        // parts[0].text would return the internal monologue instead of the actual answer.
-        const allParts = response?.candidates?.[0]?.content?.parts || [];
-        const realTextPart = allParts.find((p: any) => !p.thought && p.text);
-        return realTextPart?.text ||
-            allParts[0]?.text ||
-            "I apologize, but I'm having trouble synthesizing the analysis. Please try again.";
+        return result.text || "I apologize, but I'm having trouble synthesizing the analysis. Please try again.";
+
     } catch (error) {
-        console.warn(`[Orchestrator] Primary Tier failed, falling back to Gemini 3 Flash...`);
+        logger.warn(`[Orchestrator] Primary Tier failed, falling back to LITE...`);
 
         try {
-            // Fallback to Gemini 3 Flash (Global)
-            const fallbackModel = getGenerativeModel({ systemInstruction, tier: 'FLASH' });
-            const result = await generateWithRetry(fallbackModel, {
-                contents: [{ role: 'user', parts: [{ text: promptText }] }],
-                generationConfig: {
-                    maxOutputTokens: 4096,
-                    temperature: 1,
-                }
+            const result = await chatCompletionWithRetry({
+                tier: 'LITE',
+                systemInstruction,
+                messages: [{ role: 'user', content: promptText }],
+                maxTokens: 4096,
+                temperature: 1,
             }, 3, 1000);
 
-            const textResponse = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (textResponse) {
+            if (result.text) {
                 logger.info('[Orchestrator] Fallback completed successfully');
-                return textResponse;
+                return result.text;
             }
         } catch (fallbackError) {
             logger.error('[Orchestrator] Fallback also failed:', fallbackError);
@@ -490,6 +430,44 @@ Format your response in a warm, professional tone. Start with the INSIGHTS regar
         return "I apologize, but I encountered an error. Please try your question again.";
     }
 }
+
+// ============================================================================
+// FILE ANALYST
+// ============================================================================
+
+/**
+ * File Analyst - Summarizes files for the Router
+ */
+async function analyzeFiles(attachments: { fileUri: string; mimeType: string }[]): Promise<string> {
+    if (!attachments || attachments.length === 0) return "";
+
+    logger.info(`[Engine] Analyzing ${attachments.length} files for routing...`);
+
+    try {
+        // Note: SiliconFlow models cannot access gs:// URIs directly.
+        // File analysis now relies on text context passed from Firestore metadata.
+        const fileList = attachments.map(a => `- ${a.fileUri} (${a.mimeType})`).join('\n');
+
+        const result = await chatCompletion({
+            tier: 'LITE',
+            systemInstruction: "You are a Medical File Analyst. Based on the file metadata below, classify the likely document type (Lab Report, ECG, Prescription, Image) and suggest which medical specialists should review it. Output ONLY a 1-2 sentence summary.",
+            messages: [{ role: 'user', content: `Files:\n${fileList}` }],
+            maxTokens: 512,
+            temperature: 0.1,
+        });
+
+        logger.info(`[Engine] File Analysis: ${result.text}`);
+        return result.text;
+
+    } catch (e) {
+        logger.error('[Engine] File analysis failed:', e);
+        return "Contains medical attachments.";
+    }
+}
+
+// ============================================================================
+// MAIN SWARM ENGINE
+// ============================================================================
 
 /**
  * Run the full Swarm Engine
@@ -505,26 +483,21 @@ export async function runSwarm(
     mode: 'SIMPLE' | 'CRITICAL' = 'CRITICAL',
     attachments?: { fileUri: string; mimeType: string }[],
     onProgress?: ProgressCallback,
-    godMode?: boolean // When true: all agents use PRO tier + medium thinking
+    godMode?: boolean
 ): Promise<SwarmResult> {
 
-    // Safe progress helper — never let progress writes break the main flow
+    // Safe progress helper
     const reportProgress = async (update: Parameters<ProgressCallback>[0]) => {
         if (!onProgress) return;
         try { await onProgress(update); } catch (e) { logger.warn('[Swarm] Progress write failed:', e); }
     };
 
-    // ----------------------------------------------------------------------
-    // LANE 1: SIMPLE / EXPRESS (Flash 3 - High Speed, Context Aware)
-    // ----------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // LANE 1: SIMPLE / EXPRESS (LITE — High Speed, Context Aware)
+    // ------------------------------------------------------------------
     if (mode === 'SIMPLE') {
-        // USE TIER 1 (FLASH)
-        const model = getGenerativeModel({ tier: 'FLASH' });
-
-        // Build Context even for Simple queries (as requested)
         let simpleContext = formatProfileContext(userProfile);
 
-        // Add DOB explicitly if missing from formatProfileContext (double safety)
         if (userProfile?.dateOfBirth && !simpleContext.includes('Date of Birth')) {
             simpleContext += `\nDate of Birth: ${userProfile.dateOfBirth}`;
         }
@@ -549,18 +522,20 @@ export async function runSwarm(
         User Query: ${query}
         `;
 
+        // Convert history to SiliconFlow format
+        const chatHistory: ChatMessage[] = history.map(h => ({
+            role: h.role === 'user' ? 'user' as const : 'assistant' as const,
+            content: h.parts.map(p => p.text).join('\n'),
+        }));
+
         try {
-            const result = await model.generateContent({
-                contents: [
-                    ...history,
-                    { role: 'user', parts: [{ text: expressPrompt }] }
-                ],
+            const result = await chatCompletion({
+                tier: 'LITE',
+                messages: [...chatHistory, { role: 'user', content: expressPrompt }],
             });
 
-            const response = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "I'm here to help!";
-
             return {
-                response,
+                response: result.text || "I'm here to help!",
                 agentNotes: [],
                 symptoms: [],
                 consultations: [],
@@ -568,13 +543,12 @@ export async function runSwarm(
             };
         } catch (e) {
             console.error('[Ekam Express] Failed, falling back to Swarm:', e);
-            // Fallback to CRITICAL execution if Express fails
         }
     }
 
-    // ----------------------------------------------------------------------
-    // LANE 2: CRITICAL / COUNCIL (Pro 3 - Deep Reasoning + Round Table)
-    // ----------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // LANE 2: CRITICAL / COUNCIL (CORE — Deep Reasoning + Round Table)
+    // ------------------------------------------------------------------
     logger.info('[Ekam] Starting Swarm Execution (Critical Lane)...');
 
     // 1. BUILD CONTEXT
@@ -601,11 +575,12 @@ export async function runSwarm(
     // If the unified router says SIMPLE, redirect to Express Lane
     if (routeResult.type === 'SIMPLE') {
         logger.info('[Engine] Unified router classified as SIMPLE → Express Lane');
-        const model = getGenerativeModel({ tier: 'FLASH' });
+
         let simpleContext = formatProfileContext(userProfile);
         if (location) {
             simpleContext += `\n\n**USER LOCATION:** Latitude: ${location.lat}, Longitude: ${location.lng}`;
         }
+
         const expressPrompt = `
         You are Ekam, a helpful and friendly health assistant.
         The user has asked a simple question.
@@ -621,16 +596,20 @@ export async function runSwarm(
         
         User Query: ${query}
         `;
+
+        const chatHistory: ChatMessage[] = history.map(h => ({
+            role: h.role === 'user' ? 'user' as const : 'assistant' as const,
+            content: h.parts.map(p => p.text).join('\n'),
+        }));
+
         try {
-            const result = await model.generateContent({
-                contents: [
-                    ...history,
-                    { role: 'user', parts: [{ text: expressPrompt }] }
-                ],
+            const result = await chatCompletion({
+                tier: 'LITE',
+                messages: [...chatHistory, { role: 'user', content: expressPrompt }],
             });
-            const response = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "I'm here to help!";
+
             return {
-                response,
+                response: result.text || "I'm here to help!",
                 agentNotes: [],
                 symptoms: [],
                 consultations: [],
@@ -661,17 +640,32 @@ export async function runSwarm(
     await reportProgress({ phase: 'brainstorming', selectedAgents, agents: { ...agentProgress } });
 
     const phase1Promises = selectedAgents.map(agent => {
-        const promise = runAgent(
-            agent,
-            query,
-            contextString,
-            location,
-            agent !== 'environment' ? imageBase64 : undefined,
-            agent !== 'environment' ? imageMimeType : undefined,
-            undefined,
-            attachments,
-            godMode
-        );
+        let promise: Promise<AgentResult>;
+
+        if (agent === 'dermatologist') {
+            // Use 2-tier derm pipeline
+            promise = runDermatologyPipeline(
+                query,
+                contextString,
+                location,
+                imageBase64,
+                imageMimeType,
+                false, // Guardian hasn't run yet — will be checked post-hoc
+            );
+        } else {
+            promise = runAgent(
+                agent,
+                query,
+                contextString,
+                location,
+                agent !== 'environment' ? imageBase64 : undefined,
+                agent !== 'environment' ? imageMimeType : undefined,
+                undefined,
+                attachments,
+                godMode
+            );
+        }
+
         // Track individual agent completion for live progress
         promise.then(result => {
             const snippet = result.note.substring(0, 120).replace(/\n/g, ' ').trim();
@@ -684,15 +678,12 @@ export async function runSwarm(
     const phase1Results = await Promise.all(phase1Promises);
     const finalAgentNotes = phase1Results.filter(r => !r.note.includes('unavailable') && !r.note.includes('error'));
     logger.info(`[Swarm] Phase 1: ${finalAgentNotes.length}/${phase1Promises.length} agents responded`);
-    // Opt 1: Phase 2 (Round Table peer review) removed.
-    // The Orchestrator already performs conflict resolution as part of its synthesis instructions.
-    // Removing Phase 2 saves ~20-25s and actually improves note quality (no echo-chamber contamination).
 
     // 5. ORCHESTRATOR SYNTHESIZES
     let finalResponse: string;
 
     if (finalAgentNotes.length === 0) {
-        // EMERGENCY FALLBACK: If all agents were blocked or failed, check for emergency keywords
+        // EMERGENCY FALLBACK
         const emergencyKeywords = ['breathing', 'choking', 'chest pain', 'unconscious', 'bleeding', 'swelling', 'lips', 'throat', 'allergic', 'emergency', 'dizzy'];
         const isEmergency = emergencyKeywords.some(k => query.toLowerCase().includes(k));
 
@@ -712,7 +703,6 @@ export async function runSwarm(
         }
     }
 
-    // Log total execution time
     logger.info(`[Swarm] Execution Complete.`);
 
     return {
@@ -720,43 +710,6 @@ export async function runSwarm(
         agentNotes: finalAgentNotes.map(r => ({ agent: r.agent, note: r.note })),
         symptoms: [],
         consultations: [],
-        usedCouncil: true // Always true for Critical Lane
+        usedCouncil: true
     };
-}
-
-/**
- * NEW: File Analyst - Summarizes files for the Router
- */
-async function analyzeFiles(attachments: { fileUri: string; mimeType: string }[]): Promise<string> {
-    if (!attachments || attachments.length === 0) return "";
-
-    logger.info(`[Engine] Analyzing ${attachments.length} files for routing...`);
-
-    try {
-        const model = getGenerativeModel({
-            systemInstruction: "You are a Medical File Analyst. Summarize these documents in 1-2 sentences. Identify the TYPE (Lab Report, ECG, Prescription) and KEY ABNORMALITIES. Output ONLY the summary.",
-            tier: 'FLASH'
-        });
-
-        const parts: Part[] = [{ text: "Analyze these files:" }];
-        attachments.forEach(a => {
-            parts.push({ fileData: { fileUri: a.fileUri, mimeType: a.mimeType } });
-        });
-
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts }],
-            generationConfig: {
-                maxOutputTokens: 512,
-                temperature: 0.1,
-            }
-        });
-
-        const summary = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        logger.info(`[Engine] File Analysis: ${summary}`);
-        return summary;
-
-    } catch (e) {
-        logger.error('[Engine] File analysis failed:', e);
-        return "Contains medical attachments.";
-    }
 }

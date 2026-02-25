@@ -1,35 +1,34 @@
 /**
  * EKAM SWARM ENGINE - Cloud Functions Entry Point
  * 
- * Firebase Cloud Functions with Vertex AI backend
+ * Firebase Cloud Functions with SiliconFlow LLM backend
  * Project: ekam-8bf91
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { FieldValue } from 'firebase-admin/firestore';
 import './firebase'; // Ensures initialization runs FIRST
 import { db } from './firebase';
 import { runSwarm } from './swarm/engine';
+import { setSiliconFlowApiKey } from './utils/siliconflow';
 import { extractClinicalFacts, MemoryExtractionResult } from './swarm/memory';
 import { classifyQuery, RouterResult } from './swarm/router';
 import { ProcessMessageRequest, SwarmResult } from './swarm/types';
 import { transcribeAudio } from './transcribe';
 
+// Secrets
+const siliconflowApiKey = defineSecret('SILICONFLOW_API_KEY');
+
 // Attachments Trigger
 // Attachments Trigger
 import { onFileUpload } from './triggers/storage';
-// WhatsApp Trigger
-import { whatsappWebhook } from './whatsapp';
-
 import { telegramWebhook, registerTelegramBot, disconnectTelegramBot, onTelegramMessageSync } from './telegram';
-
-// Messaging Async Trigger
-import { onMessagingTrigger } from './triggers/messaging';
 
 // Summary Generation Function
 import { generateClinicalSummary } from './summary';
 
-export { onFileUpload, whatsappWebhook, telegramWebhook, onMessagingTrigger, generateClinicalSummary, registerTelegramBot, disconnectTelegramBot, onTelegramMessageSync };
+export { onFileUpload, telegramWebhook, generateClinicalSummary, registerTelegramBot, disconnectTelegramBot, onTelegramMessageSync };
 
 /**
  * Main callable function for processing user messages
@@ -42,10 +41,13 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
         region: 'us-central1',
         memory: '1GiB',
         timeoutSeconds: 300,
-        maxInstances: 100, // Reduced from 500 to fit quota
+        maxInstances: 100,
         minInstances: 1,
+        secrets: [siliconflowApiKey],
     },
     async (request) => {
+        // Initialize SiliconFlow API key from secret
+        setSiliconFlowApiKey(siliconflowApiKey.value());
         // Verify authentication (optional but recommended)
         if (!request.auth) {
             console.warn('[Ekam] Unauthenticated request received');
@@ -246,11 +248,13 @@ export const extractClinicalFactsCallable = onCall<{ text: string }, Promise<Mem
     {
         cors: true,
         region: 'us-central1',
-        memory: '256MiB', // Lightweight
-        timeoutSeconds: 10, // Fast timeout
-        maxInstances: 100, // Reduced from 300 to fit quota
+        memory: '256MiB',
+        timeoutSeconds: 10,
+        maxInstances: 100,
+        secrets: [siliconflowApiKey],
     },
     async (request) => {
+        setSiliconFlowApiKey(siliconflowApiKey.value());
         if (!request.auth) {
             console.warn('[Memory] Unauthenticated request');
         }
@@ -272,10 +276,12 @@ export const classifyQueryCallable = onCall<{ text: string }, Promise<RouterResu
         cors: true,
         region: 'us-central1',
         memory: '256MiB',
-        timeoutSeconds: 5, // Very fast
-        maxInstances: 100, // Reduced from 300 to fit quota
+        timeoutSeconds: 5,
+        maxInstances: 100,
+        secrets: [siliconflowApiKey],
     },
     async (request) => {
+        setSiliconFlowApiKey(siliconflowApiKey.value());
         if (!request.auth) {
             console.warn('[Router] Unauthenticated request');
         }

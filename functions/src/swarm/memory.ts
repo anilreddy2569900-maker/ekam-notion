@@ -2,12 +2,11 @@
  * EKAM SWARM - Memory System
  * 
  * "Flash" Memory Architecture for real-time fact extraction.
- * Uses low-latency models to extract clinical facts in parallel with main chat.
+ * Uses LITE tier for ultra-fast background extraction.
  */
 
-// import { GenerativeModel } from '@google-cloud/vertexai';
 import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel } from '../utils/vertexai';
+import { chatCompletion } from '../utils/siliconflow';
 
 export interface ClinicalFact {
     category: string;
@@ -34,7 +33,7 @@ export async function extractClinicalFacts(text: string): Promise<MemoryExtracti
     1. Extract facts about: Diet, Allergies, Injuries, Symptoms, Medications, Preferences (e.g., "I hate needles").
     2. Ignore general conversation ("Hello", "How are you").
     3. Ignore questions ("Do I have cancer?"). Only extract STATEMENTS of fact.
-    4. Return strict JSON format: { "facts": [{ "category": "String", "fact": "String", "action": "add"|"remove" }] }
+    4. Return strict JSON format: { "facts": [{ "category": "String", "fact": "String", "action": "add"|"remove"|"update" }] }
     
     Example:
     User: "I stopped eating dairy last week."
@@ -44,23 +43,17 @@ export async function extractClinicalFacts(text: string): Promise<MemoryExtracti
     Output: { "facts": [{ "category": "Injury Status", "fact": "Knee pain resolved", "action": "update" }] }
     `;
 
-    // Use Tier LITE (Flash Lite 2.0) for ultra-fast background extraction
-    const model = getGenerativeModel({
-        systemInstruction,
-        tier: 'LITE' as any // Cast to any as LITE is new
-    });
-
     try {
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text }] }],
-            generationConfig: {
-                maxOutputTokens: 256, // Keep it short for speed
-                temperature: 0, // Deterministic
-                responseMimeType: 'application/json'
-            }
+        const result = await chatCompletion({
+            tier: 'LITE',
+            systemInstruction,
+            messages: [{ role: 'user', content: text }],
+            maxTokens: 256,
+            temperature: 0,
+            jsonMode: true,
         });
 
-        const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
+        const responseText = result.text;
         if (!responseText) return { facts: [] };
 
         const parsed = JSON.parse(responseText) as MemoryExtractionResult;

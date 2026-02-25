@@ -1,0 +1,8 @@
+name = "ekam-worker"
+main = "worker.ts"
+compatibility_date = "2024-02-25"
+
+[vars]
+SUPABASE_URL = "https://kvqrlwlentkxumahjrsq.supabase.co"
+# SILICONFLOW_API_KEY = "Set via npx wrangler secret put"
+# SUPABASE_SERVICE_ROLE_KEY = "Set via npx wrangler secret put"

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { db, doc, setDoc, onSnapshot, serverTimestamp } from '../lib/firebase';
 import { ArrowLeft, Save, Check, HelpCircle, Plus, X, Send, AlertCircle, Loader } from 'lucide-react';
 import { HelpModal } from './HelpModal';
 import { registerTelegramBot, disconnectTelegramBot } from '../lib/ekam_api';
+import { supabase } from '../lib/supabase';
 
 interface ProfileSettingsProps {
     onClose: () => void;
@@ -70,41 +70,59 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
             }
         }
 
-        const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+        // Fetch profile and subscribe to changes
+        const fetchProfile = async () => {
+            const { data: profiles, error } = await supabase
+                .from('profiles')
+                .select('data')
+                .eq('firebase_uid', user.uid);
 
-        // Real-time listener
-        const unsubscribe = onSnapshot(profileRef, (docSnap) => {
-            if (docSnap.exists()) {
-                // Only update form data if we are NOT currently saving
+            if (error) {
+                console.error("Error fetching profile:", error);
+                return;
+            }
+
+            if (profiles && profiles.length > 0) {
+                const profileData = profiles[0].data;
                 if (!isSaving) {
-                    const data = docSnap.data() as any;
-                    setFormData(data);
-                    // Sync saved state
-                    if (data.phoneNumber) setSavedPhoneNumber(data.phoneNumber);
-                    // Sync Telegram bot status
-                    if (data.telegramBotUsername) {
-                        setTelegramBotUsername(data.telegramBotUsername);
+                    setFormData(profileData);
+                    if (profileData.phoneNumber) setSavedPhoneNumber(profileData.phoneNumber);
+                    if (profileData.telegramBotUsername) {
+                        setTelegramBotUsername(profileData.telegramBotUsername);
                         setTelegramStatus('connected');
                     }
-
-                    // Update cache silently
-                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
-                        ...data, // Ensure all data is cached, not just what's explicitly set
-                        updatedAt: new Date().toISOString(), // Add updatedAt for cache consistency
-                        onboardingCompleted: true // Add onboardingCompleted for cache consistency
-                    }));
+                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(profileData));
                 }
             }
             setIsLoading(false);
-        }, (error) => {
-            console.error("Error listening to profile:", error);
-            // If error but we have cache, we're good
-            if (!cachedStr) {
-                setIsLoading(false);
-            }
-        });
+        };
 
-        return () => unsubscribe();
+        fetchProfile();
+
+        const channel = supabase
+            .channel(`profile-${user.uid}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `firebase_uid=eq.${user.uid}`
+            }, (payload) => {
+                if (!isSaving) {
+                    const profileData = payload.new.data;
+                    setFormData(profileData);
+                    if (profileData.phoneNumber) setSavedPhoneNumber(profileData.phoneNumber);
+                    if (profileData.telegramBotUsername) {
+                        setTelegramBotUsername(profileData.telegramBotUsername);
+                        setTelegramStatus('connected');
+                    }
+                    localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(profileData));
+                }
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [user, isSaving]);
 
     const updateData = (field: string, value: string) => {
@@ -119,32 +137,24 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         console.log("HandleSave: Starting save...", formData);
         setIsSaving(true);
         try {
-            const docRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-            console.log("HandleSave: Writing to", docRef.path);
+            const profileData = {
+                ...formData,
+                updatedAt: new Date().toISOString(),
+                onboardingCompleted: true
+            };
 
-            // Create a timeout promise
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Save timed out after 10s. Check your connection.")), 10000)
-            );
+            const { error } = await supabase.from('profiles').upsert({
+                firebase_uid: user.uid,
+                data: profileData,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'firebase_uid' });
 
-            // Race setDoc against timeout
-            await Promise.race([
-                setDoc(docRef, {
-                    ...formData,
-                    updatedAt: serverTimestamp(),
-                    onboardingCompleted: true
-                }, { merge: true }),
-                timeoutPromise
-            ]);
+            if (error) throw error;
 
             console.log("HandleSave: Write successful");
 
             // Update Local Cache Immediately
-            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
-                ...formData,
-                updatedAt: new Date().toISOString(),
-                onboardingCompleted: true
-            }));
+            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(profileData));
 
             setShowSuccess(true);
             setTimeout(() => {
@@ -153,7 +163,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
             }, 1500);
         } catch (error: any) {
             console.error("Error saving profile:", error);
-            // alert(`Error saving: ${error.message || error}`); // Removed for production
         } finally {
             console.log("HandleSave: Finally block reached");
             setIsSaving(false);
@@ -383,41 +392,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                     </div>
                 </section>
 
-                {/* Section 3.5: Account & Connections */}
-                <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">
-                    <h2 className="text-xl font-medium text-text-cream/90 flex items-center gap-2">
-                        Account & Connections
-                        <div className="h-px bg-white/10 flex-1 ml-4"></div>
-                    </h2>
 
-                    <div>
-                        <label className="block text-sm text-text-muted-zinc mb-2">WhatsApp Number</label>
-                        <div className="relative">
-                            <input
-                                type="tel"
-                                value={(formData as any).phoneNumber || ''}
-                                onChange={e => {
-                                    // Basic validation: Allow only numbers, spaces, +, -
-                                    const val = e.target.value;
-                                    if (/^[0-9+\- ]*$/.test(val)) {
-                                        updateData('phoneNumber', val);
-                                    }
-                                }}
-                                placeholder="+91 98765 43210"
-                                className="w-full bg-surface-charcoal border border-text-cream/10 rounded-lg px-4 py-3 text-text-cream focus:outline-none focus:border-text-cream/50 transition-colors"
-                            />
-                            {/* Linked Badge: Only if SAVED and MATCHES current input */}
-                            {savedPhoneNumber && savedPhoneNumber.length > 5 && savedPhoneNumber === (formData as any).phoneNumber && (
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-green-400 text-xs font-medium bg-green-400/10 px-2 py-1 rounded-full border border-green-400/20">
-                                    <Check size={12} /> Linked
-                                </div>
-                            )}
-                        </div>
-                        <p className="text-xs text-text-muted-zinc mt-2 opacity-70">
-                            Enter with <strong className="text-text-cream">Country Code</strong> (e.g. +91 or +1). This allows Ekam to recognize you on WhatsApp.
-                        </p>
-                    </div>
-                </section>
 
                 {/* Section 4: Agent Memory (Dynamic) */}
                 <section className="bg-surface-charcoal/30 rounded-2xl p-6 border border-white/5 space-y-6">

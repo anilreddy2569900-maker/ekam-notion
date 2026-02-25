@@ -10,10 +10,11 @@ import { MedicalRepository } from './components/MedicalRepository';
 import { FitnessHub } from './components/Fitness/FitnessHub';
 import { GuideModal } from './components/GuideModal';
 import { useAuth } from './contexts/AuthContext';
-import { db, storage, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDocs, limit, updateDoc, deleteField, ref, uploadBytes, getDownloadURL, setDoc } from './lib/firebase';
+import { storage, ref, uploadBytes, getDownloadURL } from './lib/firebase';
 import { sendMessageToEkam, generateChatTitle, extractMemory, classifyLocally } from './lib/ekam_api';
 import { routeToAgents } from './lib/ekam_api_local';
 import { Login } from './components/Login';
+import { supabase } from './lib/supabase';
 
 
 const App: React.FC = () => {
@@ -85,26 +86,34 @@ const App: React.FC = () => {
   const loadChatHistory = React.useCallback(async () => {
     if (!user) return;
     try {
-      // Get last 3 chats (excluding current)
-      const chatsRef = collection(db, 'users', user.uid, 'chats');
-      const chatsQuery = query(chatsRef, orderBy('createdAt', 'desc'), limit(4));
-      const chatsSnap = await getDocs(chatsQuery);
+      // Get last 4 chats (excluding current)
+      const { data: chatsSnap, error: chatsError } = await supabase
+        .from('chats')
+        .select('id, title')
+        .eq('user_id', user.uid)
+        .order('created_at', { ascending: false })
+        .limit(4);
 
-      const targetDocs = chatsSnap.docs
-        .filter(doc => doc.id !== currentChatId)
+      if (chatsError) throw chatsError;
+
+      const targetDocs = chatsSnap
+        .filter(c => c.id !== currentChatId)
         .slice(0, 3);
 
-      const summaryPromises = targetDocs.map(async (chatDoc) => {
-        const msgsRef = collection(db, 'users', user.uid, 'chats', chatDoc.id, 'messages');
-        const msgsQuery = query(msgsRef, orderBy('createdAt', 'asc'), limit(5));
-        const msgsSnap = await getDocs(msgsQuery);
+      const summaryPromises = targetDocs.map(async (chat) => {
+        const { data: msgsSnap, error: msgsError } = await supabase
+          .from('messages')
+          .select('role, content')
+          .eq('chat_id', chat.id)
+          .order('created_at', { ascending: true })
+          .limit(5);
+        
+        if (msgsError) throw msgsError;
+        if (msgsSnap.length === 0) return null;
 
-        if (msgsSnap.empty) return null;
-
-        const chatTitle = chatDoc.data().title || 'Untitled Chat';
-        const msgsSummary = msgsSnap.docs.map((m: any) => {
-          const data = m.data();
-          return `${data.role === 'user' ? 'User' : 'Ekam'}: ${data.content.substring(0, 100)}...`;
+        const chatTitle = chat.title || 'Untitled Chat';
+        const msgsSummary = msgsSnap.map((m: any) => {
+          return `${m.role === 'user' ? 'User' : 'Ekam'}: ${m.content.substring(0, 100)}...`;
         }).join('\n');
 
         return `**Chat: ${chatTitle}**\n${msgsSummary}`;
@@ -141,54 +150,80 @@ const App: React.FC = () => {
       }
     }
 
-    const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
+    // Fetch profile and subscribe to changes
+    const fetchProfile = async () => {
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('data')
+        .eq('firebase_uid', user.uid);
 
-    // Real-time listener for profile changes
-    const unsubscribe = onSnapshot(profileRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+      if (error) {
+        console.error("Error fetching profile:", error);
+        // Trust local cache if network/permission fails
+        if (localStorage.getItem(`ekam_profile_${user.uid}`)) {
+          setHasProfile(true);
+        } else if (localStorage.getItem('ekam_onboarding_completed') === 'true') {
+          setHasProfile(true);
+        } else {
+          setHasProfile(false);
+        }
+        return;
+      }
+
+      if (profiles && profiles.length > 0) {
+        const data = profiles[0].data;
         setHasProfile(true);
-        setUserProfile(data); // Store full profile for AI context
-
-        // Cache to localStorage for instant load next time
+        setUserProfile(data);
         localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
         localStorage.setItem('ekam_onboarding_completed', 'true');
       } else {
-        // Profile missing in Firestore
+        // Profile missing in Supabase
         const cachedProfileStr = localStorage.getItem(`ekam_profile_${user.uid}`);
         if (cachedProfileStr) {
-          console.warn('[App] Profile missing in Firestore but exists locally. AUTO-HEALING Firestore...');
+          console.warn('[App] Profile missing in Supabase but exists locally. AUTO-HEALING Supabase...');
           try {
             const cachedProfile = JSON.parse(cachedProfileStr);
-            await setDoc(profileRef, {
-              ...cachedProfile,
-              updatedAt: serverTimestamp() // Ensure timestamp is replaced
-            }, { merge: true });
-            console.log('[App] Successfully healed Firestore profile from local cache!');
+            await supabase.from('profiles').upsert({
+              firebase_uid: user.uid,
+              data: {
+                ...cachedProfile,
+                updatedAt: new Date().toISOString()
+              },
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'firebase_uid' });
+            console.log('[App] Successfully healed Supabase profile from local cache!');
           } catch (healError) {
-            console.error('[App] Failed to auto-heal Firestore profile:', healError);
+            console.error('[App] Failed to auto-heal Supabase profile:', healError);
           }
         } else {
-          // Genuinely no profile anywhere - Force Onboarding
           localStorage.removeItem('ekam_onboarding_completed');
           localStorage.removeItem(`ekam_profile_${user.uid}`);
           setHasProfile(false);
           setUserProfile(null);
         }
       }
-    }, (error) => {
-      console.error("Error listening to profile:", error);
-      // Trust local cache if network/permission fails
-      if (localStorage.getItem(`ekam_profile_${user.uid}`)) {
-        setHasProfile(true);
-      } else if (localStorage.getItem('ekam_onboarding_completed') === 'true') {
-        setHasProfile(true);
-      } else {
-        setHasProfile(false);
-      }
-    });
+    };
 
-    return () => unsubscribe();
+    fetchProfile();
+
+    const channel = supabase
+      .channel(`profile-${user.uid}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `firebase_uid=eq.${user.uid}`
+      }, (payload) => {
+        const data = payload.new.data;
+        setHasProfile(true);
+        setUserProfile(data);
+        localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(data));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
 
@@ -200,26 +235,50 @@ const App: React.FC = () => {
       return;
     }
 
-    const chatsRef = collection(db, 'users', user.uid, 'chats');
-    const q = query(chatsRef, orderBy('createdAt', 'desc'), limit(50));
+    const fetchChats = async () => {
+      const { data, error } = await supabase
+        .from('chats')
+        .select('id, title, created_at')
+        .eq('user_id', user.uid)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-    // Create a new chat if none exist
-    const unsubscribe = onSnapshot(q, async (snapshot: { docs: any[] }) => {
-      const loadedChats = snapshot.docs.map((doc: { id: string; data: () => any }) => ({
-        id: doc.id,
-        title: doc.data().title || 'New Chat',
-        createdAt: doc.data().createdAt
-      }));
-      setChats(loadedChats);
-
-      if (loadedChats.length === 0 && !currentChatIdRef.current) {
-        // Avoid infinite loop by checking if we just tried to create one
-      } else if (loadedChats.length > 0 && !currentChatIdRef.current) {
-        setCurrentChatId(loadedChats[0].id);
+      if (error) {
+        console.error("Error fetching chats:", error);
+        return;
       }
-    });
 
-    return () => unsubscribe();
+      if (data) {
+        const loadedChats = data.map(c => ({
+          id: c.id,
+          title: c.title || 'New Chat',
+          createdAt: c.created_at
+        }));
+        setChats(loadedChats);
+
+        if (loadedChats.length > 0 && !currentChatIdRef.current) {
+          setCurrentChatId(loadedChats[0].id);
+        }
+      }
+    };
+
+    fetchChats();
+
+    const channel = supabase
+      .channel(`chats-${user.uid}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chats',
+        filter: `user_id=eq.${user.uid}`
+      }, () => {
+        fetchChats();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   // Create first chat if none
@@ -240,21 +299,47 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const vaultRef = collection(db, 'users', user.uid, 'vault');
-    const q = query(vaultRef, orderBy('uploadedAt', 'desc'));
+    const fetchVault = async () => {
+      const { data, error } = await supabase
+        .from('vault')
+        .select('file_name, file_type, storage_path, uploaded_at')
+        .eq('user_id', user.uid)
+        .order('uploaded_at', { ascending: false });
 
-    const unsubscribe = onSnapshot(q, (snapshot: { docs: any[] }) => {
-      const records = snapshot.docs.map((doc: any) => ({
-        fileName: doc.data().fileName,
-        fileType: doc.data().fileType,
-        storagePath: doc.data().storagePath,
-        uploadedAt: doc.data().uploadedAt
-      }));
-      setHealthRecords(records);
-      console.log('[App] Loaded health records for agent access:', records.length, 'files');
-    });
+      if (error) {
+        console.error("Error fetching vault:", error);
+        return;
+      }
 
-    return () => unsubscribe();
+      if (data) {
+        const records = data.map(f => ({
+          fileName: f.file_name,
+          fileType: f.file_type,
+          storagePath: f.storage_path,
+          uploadedAt: f.uploaded_at
+        }));
+        setHealthRecords(records);
+        console.log('[App] Loaded health records for agent access:', records.length, 'files');
+      }
+    };
+
+    fetchVault();
+
+    const channel = supabase
+      .channel(`vault-app-${user.uid}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'vault',
+        filter: `user_id=eq.${user.uid}`
+      }, () => {
+        fetchVault();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
 
@@ -265,34 +350,65 @@ const App: React.FC = () => {
       return;
     }
 
-    const msgsRef = collection(db, 'users', user.uid, 'chats', currentChatId, 'messages');
-    const q = query(msgsRef, orderBy('createdAt', 'asc'));
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('chat_id', currentChatId)
+        .order('created_at', { ascending: true });
 
-    const unsubscribe = onSnapshot(q, (snapshot: { docs: any[] }) => {
-      const msgs: Message[] = snapshot.docs.map((doc: { id: string; data: () => any }) => ({
-        id: doc.id,
-        role: doc.data().role,
-        content: doc.data().content,
-        imageUrl: doc.data().imageUrl,
-        agentNotes: doc.data().agentNotes, // Include agent notes for ThinkingBubble
-      }));
-      setMessages(msgs);
-    });
+      if (error) {
+        console.error("Error fetching messages:", error);
+        return;
+      }
 
-    return () => unsubscribe();
+      if (data) {
+        const msgs: Message[] = data.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          imageUrl: m.image_url,
+          agentNotes: m.agent_notes,
+        }));
+        setMessages(msgs);
+      }
+    };
+
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`messages-${currentChatId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `chat_id=eq.${currentChatId}`
+      }, () => {
+        fetchMessages();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, currentChatId]);
 
 
   const createNewChat = async () => {
     if (!user) return;
     try {
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'chats'), {
+      const { data, error } = await supabase.from('chats').insert({
+        user_id: user.uid,
         title: 'New Chat',
-        createdAt: serverTimestamp()
-      });
-      setCurrentChatId(docRef.id);
-      setIsSidebarOpen(false);
-      setView('chat'); // Reset to chat when new chat is created
+        created_at: new Date().toISOString()
+      }).select();
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setCurrentChatId(data[0].id);
+        setIsSidebarOpen(false);
+        setView('chat'); // Reset to chat when new chat is created
+      }
     } catch (e) {
       console.error("Error creating chat", e);
     }
@@ -311,11 +427,17 @@ const App: React.FC = () => {
     let activeChatId = currentChatId;
     if (!activeChatId) {
       // Create chat on first message
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'chats'), {
+      const { data, error } = await supabase.from('chats').insert({
+        user_id: user.uid,
         title: text.substring(0, 30) || 'New Chat',
-        createdAt: serverTimestamp()
-      });
-      activeChatId = docRef.id;
+        created_at: new Date().toISOString()
+      }).select();
+      
+      if (error) {
+        console.error("Error creating chat", error);
+        return;
+      }
+      activeChatId = data[0].id;
       setCurrentChatId(activeChatId);
     }
 
@@ -327,20 +449,17 @@ const App: React.FC = () => {
         imageUrl = await uploadImageToFirebase(file);
       }
 
-      // Add user message to Firestore — wrapped in a timeout to prevent infinite hanging
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Network timeout: Could not save message to database.")), 8000)
-      );
+      // Add user message to Supabase
+      const { error: msgError } = await supabase.from('messages').insert({
+        chat_id: activeChatId,
+        user_id: user.uid,
+        role: 'user',
+        content: text,
+        image_url: imageUrl || null,
+        created_at: new Date().toISOString()
+      });
 
-      await Promise.race([
-        addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-          role: 'user',
-          content: text,
-          imageUrl: imageUrl || null,
-          createdAt: serverTimestamp()
-        }),
-        timeoutPromise
-      ]);
+      if (msgError) throw msgError;
 
       // 3. BACKGROUND: Trigger AI Response (Fire & Forget from UI perspective)
       // This allows the input input to clear immediately while AI thinks.
@@ -367,18 +486,21 @@ const App: React.FC = () => {
             setActiveAgents(selectedAgents);
             setLoadingPhase('gathering');
 
-            // Set up live thinking listener
-            const thinkingDocRef = doc(db, 'users', user.uid, 'chats', activeChatId, 'thinking', 'current');
-            unsubThinking = onSnapshot(thinkingDocRef, (snapshot) => {
-              if (snapshot.exists()) {
-                const data = snapshot.data();
+            // Set up live thinking listener (Disabled for Supabase migration unless thinking table is created)
+            /*
+            const channel = supabase
+              .channel(`thinking-${activeChatId}`)
+              .on('postgres_changes', { event: '*', schema: 'public', table: 'thinking', filter: `chat_id=eq.${activeChatId}` }, (payload) => {
+                const data = payload.new;
                 setThinkingProgress({
                   phase: data.phase,
                   agents: data.agents,
-                  selectedAgents: data.selectedAgents
+                  selectedAgents: data.selected_agents
                 });
-              }
-            });
+              })
+              .subscribe();
+            unsubThinking = () => supabase.removeChannel(channel);
+            */
           }
 
           // ----------------------------------------------------------------------
@@ -395,7 +517,7 @@ const App: React.FC = () => {
                   if (f.action === 'add' || f.action === 'update') {
                     updates[storageKey] = f.fact;
                   } else if (f.action === 'remove') {
-                    updates[storageKey] = deleteField();
+                    updates[storageKey] = null; // null instead of deleteField
                   }
                 });
 
@@ -405,8 +527,24 @@ const App: React.FC = () => {
 
                   // 2. Database Update (Fire & Forget)
                   try {
-                    const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-                    await updateDoc(profileRef, updates);
+                    const { data: profiles } = await supabase
+                      .from('profiles')
+                      .select('data')
+                      .eq('firebase_uid', user.uid);
+                    
+                    const existingData = profiles && profiles.length > 0 ? profiles[0].data : {};
+                    const newData = { ...existingData, ...updates };
+                    
+                    // Remove keys with null value (mimicking deleteField)
+                    Object.keys(updates).forEach(key => {
+                      if (updates[key] === null) delete newData[key];
+                    });
+
+                    await supabase.from('profiles').upsert({
+                      firebase_uid: user.uid,
+                      data: newData,
+                      updated_at: new Date().toISOString()
+                    }, { onConflict: 'firebase_uid' });
                   } catch (e) {
                     console.error('[App] Flash Memory save failed:', e);
                   }
@@ -446,8 +584,19 @@ const App: React.FC = () => {
             try {
               const updates = JSON.parse(profileUpdateMatch[1]);
 
-              const profileRef = doc(db, 'users', user.uid, 'profile', 'health_data');
-              await updateDoc(profileRef, updates);
+              const { data: profiles } = await supabase
+                .from('profiles')
+                .select('data')
+                .eq('firebase_uid', user.uid);
+              
+              const existingData = profiles && profiles.length > 0 ? profiles[0].data : {};
+              const newData = { ...existingData, ...updates };
+
+              await supabase.from('profiles').upsert({
+                firebase_uid: user.uid,
+                data: newData,
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'firebase_uid' });
 
               // Refresh local state immediately
               setUserProfile(prev => ({ ...prev, ...updates }));
@@ -476,26 +625,24 @@ const App: React.FC = () => {
             // console.log('[App] Council response with agent notes:', ekamResponse.agentNotes);
           }
 
-          // Add AI message to Firestore - with timeout
-          const aiTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout saving AI message")), 8000));
-          await Promise.race([
-            addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-              role: 'ai',
-              content: ekamResponse.text,
-              createdAt: serverTimestamp(),
-              // Store agent notes for later retrieval if needed
-              ...(ekamResponse.agentNotes && { agentNotes: ekamResponse.agentNotes })
-            }),
-            aiTimeoutPromise
-          ]);
+          // Add AI message to Supabase
+          const { error: aiMsgError } = await supabase.from('messages').insert({
+            chat_id: activeChatId,
+            user_id: user.uid,
+            role: 'ai',
+            content: ekamResponse.text,
+            agent_notes: ekamResponse.agentNotes || null,
+            created_at: new Date().toISOString()
+          });
+
+          if (aiMsgError) throw aiMsgError;
 
           // Auto-generate chat title after first message
           if (messages.length === 0 && activeChatId) {
             // Generate title in background (don't block the response)
             generateChatTitle(text).then(async (title) => {
               try {
-                const chatRef = doc(db, 'users', user.uid, 'chats', activeChatId);
-                await updateDoc(chatRef, { title });
+                await supabase.from('chats').update({ title }).eq('id', activeChatId);
                 console.log('[App] Updated chat title to:', title);
               } catch (e) {
                 console.error('[App] Failed to update chat title:', e);
@@ -508,15 +655,13 @@ const App: React.FC = () => {
           // Show error to user in chat
           try {
             if (activeChatId && user) {
-              const errTimeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout saving error message")), 5000));
-              await Promise.race([
-                addDoc(collection(db, 'users', user.uid, 'chats', activeChatId, 'messages'), {
-                  role: 'ai',
-                  content: "I'm sorry, I encountered a temporary network issue. Please try sending your message again.",
-                  createdAt: serverTimestamp()
-                }),
-                errTimeoutPromise
-              ]);
+              await supabase.from('messages').insert({
+                chat_id: activeChatId,
+                user_id: user.uid,
+                role: 'ai',
+                content: "I'm sorry, I encountered a temporary network issue. Please try sending your message again.",
+                created_at: new Date().toISOString()
+              });
             }
           } catch (e) {
             console.error("Failed to write error message:", e);

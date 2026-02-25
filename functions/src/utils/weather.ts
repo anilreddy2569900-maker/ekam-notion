@@ -8,7 +8,6 @@
  * to prevent external API rate-limiting under heavy concurrent load.
  */
 
-import { db } from '../firebase';
 
 const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -87,21 +86,8 @@ export async function getCurrentWeather(query: string): Promise<WeatherData | nu
             return null;
         }
 
-        // CACHE CHECK: Try Firestore geohash cache first
-        const geoKey = toGeoKey(lat, lng);
-        try {
-            const cacheDoc = await db.collection('weatherCache').doc(geoKey).get();
-            if (cacheDoc.exists) {
-                const cached = cacheDoc.data();
-                const cachedAt = cached?.cachedAt?.toMillis?.() || cached?.cachedAt || 0;
-                if (Date.now() - cachedAt < WEATHER_CACHE_TTL_MS) {
-                    console.log(`[Weather] Cache HIT for geoKey ${geoKey}`);
-                    return cached?.data as WeatherData;
-                }
-            }
-        } catch (cacheErr) {
-            console.warn('[Weather] Cache read failed, fetching fresh:', cacheErr);
-        }
+        // Cache disabled for Cloudflare Worker compatibility
+
 
         // 1. Fetch Weather (Open-Meteo)
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index&timezone=auto`;
@@ -166,11 +152,8 @@ export async function getCurrentWeather(query: string): Promise<WeatherData | nu
             }
         };
 
-        // CACHE WRITE: Save to Firestore (fire-and-forget, don't block response)
-        db.collection('weatherCache').doc(geoKey).set({
-            data,
-            cachedAt: Date.now(),
-        }).catch(err => console.warn('[Weather] Cache write failed:', err));
+        // Cache write disabled
+
 
         return data;
 

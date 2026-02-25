@@ -2,12 +2,11 @@
  * EKAM SWARM - Unified Semantic Router
  * 
  * Single AI call that BOTH classifies query complexity AND routes to agents.
- * LOW LATENCY is the priority here.
+ * Uses LITE tier (meta-llama/llama-3.1-8b) for ultra-fast classification.
  */
 
-import { GenerativeModel } from '@google-cloud/vertexai';
-import * as logger from 'firebase-functions/logger';
-import { getGenerativeModel } from '../utils/vertexai';
+import * as logger from '../utils/logger';
+import { chatCompletion, buildVisionMessage, ChatMessage } from '../utils/siliconflow';
 import { AgentKey } from './types';
 
 export type QueryComplexity = 'SIMPLE' | 'CRITICAL';
@@ -97,35 +96,26 @@ export async function classifyAndRoute(
     `;
 
     try {
-        const model: GenerativeModel = getGenerativeModel({
-            systemInstruction,
-            tier: 'LITE', // Gemini Flash Lite — ultra-fast for classification (outputs tiny JSON only)
-        });
+        // Build the user message
+        const userText = `Query: ${query || "Check attachment"}\nImage: ${imageBase64 ? "Yes" : "No"}\nFile Context: ${fileContext || "None"}`;
 
-        const contents = [{ role: 'user', parts: [] as any[] }];
-        contents[0].parts.push({
-            text: `Query: ${query || "Check attachment"}\nImage: ${imageBase64 ? "Yes" : "No"}\nFile Context: ${fileContext || "None"}`
-        });
-
+        let messages: ChatMessage[];
         if (imageBase64 && imageMimeType) {
-            contents[0].parts.push({
-                inlineData: {
-                    data: imageBase64,
-                    mimeType: imageMimeType
-                }
-            });
+            messages = [buildVisionMessage(userText, imageBase64, imageMimeType)];
+        } else {
+            messages = [{ role: 'user', content: userText }];
         }
 
-        const result = await model.generateContent({
-            contents,
-            generationConfig: {
-                maxOutputTokens: 100,
-                temperature: 0,
-                responseMimeType: 'application/json'
-            }
+        const result = await chatCompletion({
+            tier: 'LITE',
+            systemInstruction,
+            messages,
+            maxTokens: 100,
+            temperature: 0,
+            jsonMode: true,
         });
 
-        let responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
+        let responseText = result.text;
         if (!responseText) throw new Error("Empty response from Router");
 
         // Strip markdown backticks if present
@@ -146,11 +136,9 @@ export async function classifyAndRoute(
 
         // ALWAYS include Environment (Context) for environmental data
         if (!selectedAgents.includes('environment')) selectedAgents.push('environment');
-        // NOTE: Orchestrator is intentionally NOT added here — it runs separately as the final synthesizer,
-        // not as a Phase 1/2 specialist. This avoids a redundant slow PRO call in the agent pool.
 
         // FALLBACK: If no agents selected, default to Guardian (Safety)
-        if (selectedAgents.length <= 2) { // Only env + orchestrator
+        if (selectedAgents.length <= 2) {
             logger.warn('[Router] No specific agents selected. Adding Guardian.');
             selectedAgents.push('guardian');
             if (imageBase64) selectedAgents.push('dermatologist');
@@ -183,4 +171,3 @@ export async function classifyQuery(text: string): Promise<RouterResult> {
     const result = await classifyAndRoute(text);
     return { type: result.type, reason: result.reason };
 }
-

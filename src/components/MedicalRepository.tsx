@@ -3,23 +3,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, FileText, Image as ImageIcon, Eye, File, Calendar, Trash2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
-    db,
     storage,
     ref,
     uploadBytes,
     getDownloadURL,
-    collection,
-    addDoc,
-    query,
-    orderBy,
-    onSnapshot,
-    serverTimestamp,
-    deleteDoc,
-    doc,
     deleteObject,
     functions,
     httpsCallable
 } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 interface MedicalRepositoryProps {
     onClose: () => void;
@@ -47,20 +39,47 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
     useEffect(() => {
         if (!user) return;
 
-        const q = query(
-            collection(db, 'users', user.uid, 'vault'),
-            orderBy('uploadedAt', 'desc')
-        );
+        const fetchFiles = async () => {
+            const { data, error } = await supabase
+                .from('vault')
+                .select('*')
+                .eq('user_id', user.uid)
+                .order('uploaded_at', { ascending: false });
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedFiles = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as VaultFile[];
-            setFiles(fetchedFiles);
-        });
+            if (error) {
+                console.error("Error fetching vault files:", error);
+                return;
+            }
 
-        return () => unsubscribe();
+            if (data) {
+                setFiles(data.map(f => ({
+                    id: f.id,
+                    fileName: f.file_name,
+                    fileUrl: f.file_url || '', // We'll add this to the database if missing
+                    fileType: f.file_type as 'pdf' | 'image' | 'other',
+                    uploadedAt: f.uploaded_at,
+                    storagePath: f.storage_path
+                })));
+            }
+        };
+
+        fetchFiles();
+
+        const channel = supabase
+            .channel(`vault-${user.uid}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'vault',
+                filter: `user_id=eq.${user.uid}`
+            }, () => {
+                fetchFiles();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [user]);
 
     // Handle File Upload
@@ -91,15 +110,18 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
             if (uploadedFile.type.includes('pdf')) fileType = 'pdf';
             if (uploadedFile.type.includes('image')) fileType = 'image';
 
-            // Save Metadata to Firestore
-            await addDoc(collection(db, 'users', user.uid, 'vault'), {
-                fileName: uploadedFile.name,
-                fileUrl: downloadURL,
-                fileType: fileType,
+            // Save Metadata to Supabase
+            const { error: dbError } = await supabase.from('vault').insert({
+                user_id: user.uid,
+                file_name: uploadedFile.name,
+                file_url: downloadURL,
+                file_type: fileType,
                 size: uploadedFile.size,
-                uploadedAt: serverTimestamp(),
-                storagePath: storagePath // Save path for deletion reference
+                storage_path: storagePath,
+                uploaded_at: new Date().toISOString()
             });
+
+            if (dbError) throw dbError;
 
         } catch (error) {
             console.error("Upload failed:", error);
@@ -148,8 +170,9 @@ export const MedicalRepository: React.FC<MedicalRepositoryProps> = ({ onClose })
                 await deleteObject(storageRef).catch(err => console.warn("Storage deletion failed:", err));
             }
 
-            // 2. Delete from Firestore
-            await deleteDoc(doc(db, 'users', user.uid, 'vault', file.id));
+            // 2. Delete from Supabase
+            const { error: dbError } = await supabase.from('vault').delete().eq('id', file.id);
+            if (dbError) throw dbError;
 
         } catch (error) {
             console.error("Error deleting file:", error);

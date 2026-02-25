@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Dumbbell, Utensils, Activity, ArrowRight, Brain, Check, RefreshCw, X, ChevronLeft, Trophy, Home, Building2, BicepsFlexed, HeartPulse, Scale, Flame } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendMessageToEkam } from '../../lib/ekam_api';
-import { db, doc, setDoc, onSnapshot } from '../../lib/firebase';
+import { supabase } from '../../lib/supabase';
 
 interface FitnessHubProps {
     onClose: () => void;
@@ -90,14 +90,44 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
     // Load Existing Plan
     useEffect(() => {
         if (!user) return;
-        const planRef = doc(db, 'users', user.uid, 'fitness', 'current_plan');
-        const unsubscribe = onSnapshot(planRef, (docSnap) => {
-            if (docSnap.exists()) {
-                setPlan(docSnap.data() as FitnessPlan);
+        
+        const fetchPlan = async () => {
+            const { data: profiles, error } = await supabase
+                .from('profiles')
+                .select('data')
+                .eq('firebase_uid', user.uid);
+
+            if (error) {
+                console.error("Error fetching fitness plan:", error);
+                return;
+            }
+
+            if (profiles && profiles.length > 0 && profiles[0].data.fitness_plan) {
+                setPlan(profiles[0].data.fitness_plan as FitnessPlan);
                 setStep('plan');
             }
-        });
-        return () => unsubscribe();
+        };
+
+        fetchPlan();
+
+        const channel = supabase
+            .channel(`fitness-${user.uid}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `firebase_uid=eq.${user.uid}`
+            }, (payload) => {
+                if (payload.new.data.fitness_plan) {
+                    setPlan(payload.new.data.fitness_plan as FitnessPlan);
+                    setStep('plan');
+                }
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [user]);
 
     // --- ONBOARDING HANDLERS ---
@@ -187,11 +217,26 @@ export const FitnessHub: React.FC<FitnessHubProps> = ({ onClose }) => {
             if (jsonMatch) {
                 const planData = JSON.parse(jsonMatch[0]);
                 if (user) {
-                    await setDoc(doc(db, 'users', user.uid, 'fitness', 'current_plan'), {
-                        ...planData,
-                        id: 'current_plan',
-                        generatedAt: new Date()
-                    });
+                    // Fetch existing profile data first to merge
+                    const { data: profiles } = await supabase
+                        .from('profiles')
+                        .select('data')
+                        .eq('firebase_uid', user.uid);
+
+                    const existingData = profiles && profiles.length > 0 ? profiles[0].data : {};
+                    
+                    await supabase.from('profiles').upsert({
+                        firebase_uid: user.uid,
+                        data: {
+                            ...existingData,
+                            fitness_plan: {
+                                ...planData,
+                                id: 'current_plan',
+                                generatedAt: new Date().toISOString()
+                            }
+                        },
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'firebase_uid' });
                 }
             }
         } catch (e) {

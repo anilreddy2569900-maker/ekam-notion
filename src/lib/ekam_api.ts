@@ -50,27 +50,39 @@ interface SwarmResult {
 }
 
 // ============================================================================
-// CALLABLE FUNCTIONS
+// CALLABLE FUNCTIONS (Now using Cloudflare Workers)
 // ============================================================================
 
-const processMessageFn = httpsCallable<SwarmRequest, SwarmResult>(functions, 'processMessage', { timeout: 300000 });
-const transcribeAudioFn = httpsCallable<{ audio: string; languageCode?: string }, { text: string; languageCode: string }>(functions, 'transcribeAudio');
-const registerTelegramBotFn = httpsCallable<{ token: string }, { success: boolean; botName: string; botUsername: string }>(functions, 'registerTelegramBot');
-const disconnectTelegramBotFn = httpsCallable<Record<string, never>, { success: boolean }>(functions, 'disconnectTelegramBot');
+const WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || '';
+
+async function callWorker<T>(path: string, payload: any): Promise<{ data: T }> {
+    const response = await fetch(`${WORKER_URL}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `Worker call failed: ${path}`);
+    }
+    
+    return { data: await response.json() };
+}
 
 /**
  * Register a user's Telegram bot by validating the token and registering the webhook.
  */
 export async function registerTelegramBot(token: string): Promise<{ botName: string; botUsername: string }> {
-    const result = await registerTelegramBotFn({ token });
-    return { botName: result.data.botName, botUsername: result.data.botUsername };
+    const result = await callWorker<{ botName: string; botUsername: string }>('registerTelegramBot', { token });
+    return result.data;
 }
 
 /**
  * Disconnect the user's Telegram bot (removes webhook + token from profile).
  */
 export async function disconnectTelegramBot(): Promise<void> {
-    await disconnectTelegramBotFn({});
+    await callWorker<void>('disconnectTelegramBot', {});
 }
 
 // ============================================================================
@@ -150,8 +162,8 @@ export async function sendMessageToEkam(
                 `\n\n[SYSTEM] The user has the following medical files in their Vault. You have access to read them if relevant:\n${recordsInfo}`;
         }
 
-        // Call the Cloud Function
-        const result = await processMessageFn(request);
+        // Call the Cloudflare Worker
+        const result = await callWorker<SwarmResult>('processMessage', request);
         const data = result.data;
 
         return {
@@ -173,7 +185,7 @@ export async function sendMessageToEkam(
 
             // Use the API key from environment variables (client-side)
             const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '');
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
             const prompt = `
             You are Ekam, a helpful health assistant.
@@ -337,7 +349,7 @@ const classifyQueryFn = httpsCallable<{ text: string }, RouterResult>(functions,
 export async function routeQuery(text: string): Promise<QueryComplexity> {
     try {
         console.log('[Ekam Router] Classifying query (server)...');
-        const result = await classifyQueryFn({ text });
+        const result = await callWorker<RouterResult>('classifyQuery', { text });
         const classification = result.data.type || 'CRITICAL';
         return classification as QueryComplexity;
     } catch (error) {
@@ -356,8 +368,6 @@ export interface ClinicalFact {
     action: 'add' | 'remove' | 'update';
 }
 
-const extractFactsFn = httpsCallable<{ text: string }, { facts: ClinicalFact[] }>(functions, 'extractClinicalFactsCallable');
-
 /**
  * Rapidly extract clinical facts from user text
  * Returns immediately for optimistic UI updates
@@ -365,7 +375,7 @@ const extractFactsFn = httpsCallable<{ text: string }, { facts: ClinicalFact[] }
 export async function extractMemory(text: string): Promise<ClinicalFact[]> {
     try {
         console.log('[Ekam Memory] extracting facts...');
-        const result = await extractFactsFn({ text });
+        const result = await callWorker<{ facts: ClinicalFact[] }>('extractClinicalFacts', { text });
         const facts = result.data.facts || [];
 
         if (facts.length > 0) {

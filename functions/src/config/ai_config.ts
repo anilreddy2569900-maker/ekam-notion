@@ -1,35 +1,31 @@
 import { AgentKey } from '../swarm/types';
 
 // ============================================================================
-// AI MODEL CONFIGURATION - STRICT GLOBAL ENFORCEMENT
+// AI MODEL CONFIGURATION — SILICONFLOW
 // ============================================================================
 
-export type ModelTier = 'FLASH' | 'PRO' | 'LITE';
+export type ModelTier = 'CORE' | 'LITE' | 'DERM' | 'DERM_ESCALATION';
 
 export const AI_CONFIG = {
     models: {
-        FLASH: 'gemini-3-flash-preview',
-        PRO: 'gemini-3.1-pro-preview',
-        LITE: 'gemini-flash-lite-latest', // Ultra-fast for routing/classification
+        CORE: 'openai/gpt-oss-120b',                   // All serious reasoning — Orchestrator, specialists, summaries
+        LITE: 'meta-llama/Meta-Llama-3.1-8B-Instruct',      // Routing, Express Lane, Environment, Memory
+        DERM: 'Qwen/Qwen2.5-VL-72B-Instruct',          // Default vision dermatologist
+        DERM_ESCALATION: 'Pro/THUDM/glm-4v-9b',              // Heavy derm VLM (only on escalation)
     },
-    location: {
-        global: 'global',
-        regional: 'us-central1'
-    }
 };
 
-
 export const AGENT_TIERS: Record<AgentKey, ModelTier> = {
-    // TIER 2: REASONING (PRO) — Complex multi-domain synthesis only
-    orchestrator: 'PRO',
-    dermatologist: 'PRO', // Keep PRO: complex visual + systemic pattern analysis
+    // CORE: Deep reasoning — Orchestrator + complex visual analysis
+    orchestrator: 'CORE',
+    dermatologist: 'DERM', // Uses vision model by default; escalates to DERM_ESCALATION
 
-    // TIER 1: SPEED (FLASH) — Pattern matchers & structured analysis
-    guardian: 'FLASH',   // Red-flag screening: rule-based, benefits from speed not depth
-    neuro: 'FLASH',      // Symptom mapping: structured analysis, not deep reasoning
-    metabolic: 'FLASH',
-    somatic: 'FLASH',
-    vitalist: 'FLASH',
-    endocrine: 'FLASH',
-    environment: 'FLASH',
+    // LITE: Fast pattern matchers & structured analysis
+    guardian: 'CORE',    // Safety needs strong reasoning
+    neuro: 'CORE',
+    metabolic: 'CORE',
+    somatic: 'CORE',
+    vitalist: 'CORE',
+    endocrine: 'CORE',
+    environment: 'LITE', // Data provider, doesn't need heavy reasoning
 };

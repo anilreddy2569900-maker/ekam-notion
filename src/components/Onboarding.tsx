@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { db, doc, setDoc, serverTimestamp } from '../lib/firebase';
 import { ChevronRight, Check, HelpCircle } from 'lucide-react';
 import { HelpModal } from './HelpModal';
+import { supabase } from '../lib/supabase';
 
 interface OnboardingProps {
     onComplete: () => void;
@@ -43,24 +43,25 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         if (!user) return;
         setIsSubmitting(true);
         try {
-            await setDoc(doc(db, 'users', user.uid, 'profile', 'health_data'), {
+            const profileData = {
                 ...formData,
-                // Sanitize: Ensure numerical values are stored as numbers
                 height: Number(formData.height) || 0,
                 weight: Number(formData.weight) || 0,
-                updatedAt: serverTimestamp(),
                 onboardingCompleted: true
-            });
+            };
+            
+            const { error } = await supabase.from('profiles').upsert({
+                firebase_uid: user.uid,
+                data: profileData,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'firebase_uid' });
+
+            if (error) throw error;
 
             // Set local flags immediately to prevent onboarding loop on refresh
             localStorage.setItem('ekam_onboarding_completed', 'true');
             // Cache the profile itself so App.tsx can load instantly
-            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify({
-                ...formData,
-                height: Number(formData.height) || 0,
-                weight: Number(formData.weight) || 0,
-                onboardingCompleted: true
-            }));
+            localStorage.setItem(`ekam_profile_${user.uid}`, JSON.stringify(profileData));
 
             // Small delay for UX
             setTimeout(() => {

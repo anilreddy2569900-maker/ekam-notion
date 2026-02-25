@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, X, Settings, FileText, MessageSquare, Trash2, LogOut, Dumbbell, Send } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, deleteDoc, doc } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -23,7 +23,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onNewChat, on
         e.stopPropagation();
         if (!user) return;
         if (confirm('Are you sure you want to delete this chat?')) {
-            await deleteDoc(doc(db, 'users', user.uid, 'chats', chatId));
+            const { error } = await supabase.from('chats').delete().eq('id', chatId);
+            if (error) {
+                console.error("Error deleting chat:", error);
+                alert("Failed to delete chat.");
+            }
         }
     };
 

@@ -55,8 +55,8 @@ function getOrbitalPosition(index: number, total: number, radius: number = 120) 
 // Hook to get responsive orbital radius
 function useOrbitalRadius() {
     const [radius, setRadius] = React.useState(() => {
-        if (typeof window === 'undefined') return 90;
-        return window.innerWidth < 400 ? 75 : window.innerWidth < 640 ? 90 : 115;
+        if (typeof window === 'undefined') return 80;
+        return window.innerWidth < 400 ? 65 : window.innerWidth < 640 ? 80 : 100;
     });
 
     React.useEffect(() => {
@@ -73,7 +73,6 @@ function useOrbitalRadius() {
 
 export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', activeAgents = [], thinkingProgress }) => {
     const [phraseIndex, setPhraseIndex] = useState(0);
-    const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const orbitalRadius = useOrbitalRadius();
 
     const getFallbackPhrases = () => {
@@ -93,7 +92,6 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
 
     useEffect(() => {
         setPhraseIndex(0);
-        setElapsedSeconds(0);
     }, [activeAgents.length, mode]);
 
     useEffect(() => {
@@ -104,11 +102,6 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
         return () => clearInterval(interval);
     }, [PHRASES.length, thinkingProgress]);
 
-    // Timer
-    useEffect(() => {
-        const timer = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
-        return () => clearInterval(timer);
-    }, []);
 
     const isSimple = mode === 'simple';
     const hasLiveData = thinkingProgress && thinkingProgress.agents && Object.keys(thinkingProgress.agents).length > 0;
@@ -154,7 +147,7 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
         <div className="flex flex-col items-center justify-center w-full max-w-2xl mx-auto py-6">
 
             {/* ORBITAL CONSTELLATION */}
-            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-80 md:h-80 mb-4 mx-auto">
+            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-80 md:h-80 mb-10 mx-auto">
 
                 {/* Outer rotating ring */}
                 <motion.div
@@ -371,11 +364,6 @@ export const ThinkingState: React.FC<ThinkingStateProps> = ({ mode = 'complex', 
                         </motion.div>
                     </AnimatePresence>
                 </div>
-
-                {/* Elapsed timer */}
-                <span className="text-[10px] text-text-muted-zinc/40 tabular-nums font-mono">
-                    {elapsedSeconds}s
-                </span>
             </div>
 
             {/* Done Agent Snippets (collapsed cards below the constellation) */}

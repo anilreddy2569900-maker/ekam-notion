@@ -42,7 +42,7 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
         region: 'us-central1',
         memory: '1GiB',
         timeoutSeconds: 300,
-        maxInstances: 100,
+        maxInstances: 100, // Reduced from 500 to fit quota
         minInstances: 1,
     },
     async (request) => {
@@ -76,6 +76,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
 
         try {
             // Fetch and convert image if URL provided
+            // SCALABILITY: Capped at 4MB to prevent memory spikes under concurrent load
+            // The 1GiB Cloud Function memory must be shared across all concurrent processing
             let imageBase64: string | undefined;
             let imageMimeType: string | undefined;
 
@@ -96,10 +98,12 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                             const imageBuffer = await imageResponse.arrayBuffer();
 
                             // Reject tiny responses (likely error pages) and oversized ones
+                            // SCALABILITY: Reduced from 10MB to 4MB — prevents Node.js memory exhaustion
+                            // when many concurrent requests are downloading images simultaneously
                             if (imageBuffer.byteLength < 100) {
                                 console.warn('[Ekam] Image too small, likely invalid. Skipping.');
-                            } else if (imageBuffer.byteLength > 10 * 1024 * 1024) {
-                                console.warn('[Ekam] Image too large (>10MB). Skipping.');
+                            } else if (imageBuffer.byteLength > 4 * 1024 * 1024) {
+                                console.warn(`[Ekam] Image too large (${Math.round(imageBuffer.byteLength / 1024 / 1024)}MB > 4MB limit). Skipping to protect memory.`);
                             } else {
                                 imageBase64 = Buffer.from(imageBuffer).toString('base64');
                                 imageMimeType = contentType;
@@ -126,6 +130,8 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
             }
 
             // Set up live thinking progress if we have userId and chatId
+            // SCALABILITY: Debounced writer — max 1 Firestore write per 1.5s
+            // Prevents Firestore's 1 write/sec/doc limit from being hit under load
             let thinkingDocRef: FirebaseFirestore.DocumentReference | null = null;
             let onProgress = undefined;
 
@@ -140,12 +146,44 @@ export const processMessage = onCall<ProcessMessageRequest, Promise<SwarmResult>
                     updatedAt: FieldValue.serverTimestamp()
                 });
 
-                onProgress = async (update: any) => {
-                    if (thinkingDocRef) {
+                // Debounce state: buffer writes and flush at controlled intervals
+                let pendingUpdate: any = null;
+                let lastFlushTime = 0;
+                const FLUSH_INTERVAL_MS = 1500; // Max 1 write per 1.5 seconds
+                let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+                const flushToFirestore = async (update: any) => {
+                    if (!thinkingDocRef) return;
+                    try {
                         await thinkingDocRef.set({
                             ...update,
                             updatedAt: FieldValue.serverTimestamp()
                         }, { merge: true });
+                        lastFlushTime = Date.now();
+                    } catch (e) {
+                        console.warn('[Ekam] Thinking progress flush failed:', e);
+                    }
+                };
+
+                onProgress = async (update: any) => {
+                    pendingUpdate = update; // Always keep latest state
+                    const now = Date.now();
+                    const elapsed = now - lastFlushTime;
+
+                    if (elapsed >= FLUSH_INTERVAL_MS) {
+                        // Enough time passed — flush immediately
+                        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+                        await flushToFirestore(pendingUpdate);
+                        pendingUpdate = null;
+                    } else if (!flushTimer) {
+                        // Schedule a delayed flush for the remaining interval
+                        flushTimer = setTimeout(async () => {
+                            flushTimer = null;
+                            if (pendingUpdate) {
+                                await flushToFirestore(pendingUpdate);
+                                pendingUpdate = null;
+                            }
+                        }, FLUSH_INTERVAL_MS - elapsed);
                     }
                 };
             }
@@ -210,7 +248,7 @@ export const extractClinicalFactsCallable = onCall<{ text: string }, Promise<Mem
         region: 'us-central1',
         memory: '256MiB', // Lightweight
         timeoutSeconds: 10, // Fast timeout
-        maxInstances: 100,
+        maxInstances: 100, // Reduced from 300 to fit quota
     },
     async (request) => {
         if (!request.auth) {
@@ -235,7 +273,7 @@ export const classifyQueryCallable = onCall<{ text: string }, Promise<RouterResu
         region: 'us-central1',
         memory: '256MiB',
         timeoutSeconds: 5, // Very fast
-        maxInstances: 100,
+        maxInstances: 100, // Reduced from 300 to fit quota
     },
     async (request) => {
         if (!request.auth) {

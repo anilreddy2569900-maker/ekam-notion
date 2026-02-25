@@ -576,7 +576,22 @@ export const telegramWebhook = onRequest(
                     }
                 }
 
-                // 9. Send response back to Telegram
+                // 9. Handle Profile Updates & Clean Response
+                const profileUpdateMatch = aiResponse.match(/\|\|PROFILE_UPDATE:\s*(\{.*?\})\|\|/);
+                if (profileUpdateMatch && profileUpdateMatch[1]) {
+                    try {
+                        const updates = JSON.parse(profileUpdateMatch[1]);
+                        const profileRef = db.doc(`users/${uid}/profile/health_data`);
+                        await profileRef.set(updates, { merge: true });
+                        logger.info(`[Telegram Memory] Applied profile updates for ${uid}:`, updates);
+                    } catch (e) {
+                        logger.error(`[Telegram Memory] Failed to parse/apply profile update for ${uid}:`, e);
+                    }
+                    // Strip the hidden tag from the text
+                    aiResponse = aiResponse.replace(profileUpdateMatch[0], '').trim();
+                }
+
+                // 10. Send response back to Telegram
                 await sendTelegramMessage(telegramChatId, aiResponse, token);
 
                 // 10. Save AI response to Firestore (for web history)

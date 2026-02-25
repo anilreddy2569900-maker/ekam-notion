@@ -251,16 +251,28 @@ export interface RouterResult {
 }
 
 // Patterns that indicate a SIMPLE query (instant classification, no network call)
+// SCALABILITY: Expanded to reduce false CRITICAL classifications and unnecessary Council calls
 const SIMPLE_PATTERNS = [
-    /^(hi|hey|hello|hola|namaste|yo|sup|hii+|heyy+)\b/i,
-    /^(thanks|thank you|thx|ty|ok|okay|cool|great|nice|got it|understood|sure)\b/i,
-    /^(good morning|good evening|good night|good afternoon|gm|gn)\b/i,
-    /^(bye|goodbye|see you|later|cya)\b/i,
-    /^(who are you|what are you|what can you do|how do you work)\b/i,
-    /^(what is my (age|weight|height|name|profile|location|bmi))\b/i,
-    /^(how old am i|my age|my weight|my height|my bmi)\b/i,
-    /^(where (is|are) my (profile|settings|vault|records))\b/i,
-    /^(how do i (upload|use|navigate|change|update))\b/i,
+    /^(hi|hey|hello|hola|namaste|yo|sup|hii+|heyy+)$/i,
+    /^(thanks|thank you|thx|ty|ok|okay|cool|great|nice|got it|understood|sure)$/i,
+    /^(good morning|good evening|good night|good afternoon|gm|gn)$/i,
+    /^(bye|goodbye|see you|later|cya)$/i,
+    /^(who are you|what are you|what can you do|how do you work)/i,
+    /^(what is my (age|weight|height|name|profile|location|bmi))/i,
+    /^(how old am i|my age|my weight|my height|my bmi)/i,
+    /^(where (is|are) my (profile|settings|vault|records))/i,
+    /^(how do i (upload|use|navigate|change|update))/i,
+    // General knowledge (non-medical)
+    /^(what is |what are |define |meaning of )(a |an )?(protein|carb|vitamin|mineral|calorie|bmi|bmr|rda)\b/i,
+    // Compliments & small talk
+    /^(you('re| are) (great|awesome|helpful|amazing|the best))/i,
+    /^(i love (you|ekam|this)|this is (great|cool|awesome))/i,
+    // General well-being (not symptoms)
+    /^(how (to |do i )?(drink|eat|sleep|exercise|meditate|relax) (more|better|properly))/i,
+    // Unit conversions & calculations
+    /^(convert |calculate |how (many|much) )/i,
+    // App navigation
+    /^(show|open|go to|take me to|where is) (my )?(dashboard|settings|profile|vault|chat|history)/i,
 ];
 
 // Patterns that indicate a CRITICAL query (needs full council)

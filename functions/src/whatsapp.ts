@@ -82,28 +82,66 @@ export const whatsappWebhook = onRequest({ cors: true, secrets: [whatsappToken, 
                 logger.info(`[WhatsApp] Msg from ${from}: ${query} (Type: ${message.type})`);
 
                 // 3. Identify User
-                // Try to find "+91..." or just matching the number
-
+                // SCALABILITY: O(1) reverse lookup via phoneToUser/{phone} collection
+                // Falls back to collectionGroup query for backwards compatibility
                 const possibleNumberPlus = `+${from}`;
 
                 let userDoc = null;
 
-                // Strategy: Try exact match with + first (preferred), then without +
-                const snapshotPlus = await db.collectionGroup('profile')
-                    .where('phoneNumber', '==', possibleNumberPlus)
-                    .limit(1)
-                    .get();
+                // FAST PATH: Direct document lookup (O(1), no query)
+                const phoneDocPlus = await db.collection('phoneToUser').doc(possibleNumberPlus).get();
+                if (phoneDocPlus.exists) {
+                    const userId = phoneDocPlus.data()?.userId;
+                    if (userId) {
+                        const profileDoc = await db.doc(`users/${userId}/profile/health_data`).get();
+                        if (profileDoc.exists) {
+                            userDoc = profileDoc;
+                            logger.info(`[WhatsApp] Fast lookup hit for ${possibleNumberPlus}`);
+                        }
+                    }
+                }
 
-                if (!snapshotPlus.empty) {
-                    userDoc = snapshotPlus.docs[0];
-                } else {
-                    // Try without plus
-                    const snapshotRaw = await db.collectionGroup('profile')
-                        .where('phoneNumber', '==', from)
+                if (!userDoc) {
+                    const phoneDocRaw = await db.collection('phoneToUser').doc(from).get();
+                    if (phoneDocRaw.exists) {
+                        const userId = phoneDocRaw.data()?.userId;
+                        if (userId) {
+                            const profileDoc = await db.doc(`users/${userId}/profile/health_data`).get();
+                            if (profileDoc.exists) {
+                                userDoc = profileDoc;
+                                logger.info(`[WhatsApp] Fast lookup hit for ${from}`);
+                            }
+                        }
+                    }
+                }
+
+                // SLOW FALLBACK: collectionGroup query (for users not yet in reverse index)
+                if (!userDoc) {
+                    logger.warn('[WhatsApp] Fast lookup missed, falling back to collectionGroup query');
+                    const snapshotPlus = await db.collectionGroup('profile')
+                        .where('phoneNumber', '==', possibleNumberPlus)
                         .limit(1)
                         .get();
-                    if (!snapshotRaw.empty) {
-                        userDoc = snapshotRaw.docs[0];
+
+                    if (!snapshotPlus.empty) {
+                        userDoc = snapshotPlus.docs[0];
+                        // Auto-populate reverse index for next time
+                        const uid = userDoc.ref.parent.parent?.id;
+                        if (uid) {
+                            db.collection('phoneToUser').doc(possibleNumberPlus).set({ userId: uid, linkedAt: new Date() }).catch(() => { });
+                        }
+                    } else {
+                        const snapshotRaw = await db.collectionGroup('profile')
+                            .where('phoneNumber', '==', from)
+                            .limit(1)
+                            .get();
+                        if (!snapshotRaw.empty) {
+                            userDoc = snapshotRaw.docs[0];
+                            const uid = userDoc.ref.parent.parent?.id;
+                            if (uid) {
+                                db.collection('phoneToUser').doc(from).set({ userId: uid, linkedAt: new Date() }).catch(() => { });
+                            }
+                        }
                     }
                 }
 

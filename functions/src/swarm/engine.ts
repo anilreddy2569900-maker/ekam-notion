@@ -20,6 +20,37 @@ import {
     UserLocation
 } from './types';
 
+// ============================================================================
+// GLOBAL CONCURRENCY CONTROL — SCALABILITY
+// Limits total simultaneous Vertex AI API calls across ALL requests.
+// Prevents RESOURCE_EXHAUSTED (429) under heavy load.
+// ============================================================================
+const MAX_CONCURRENT_AI_CALLS = 50; // Tune based on your Vertex AI quota
+let activeAICalls = 0;
+const aiCallQueue: Array<{ resolve: () => void }> = [];
+
+async function acquireAISlot(): Promise<void> {
+    if (activeAICalls < MAX_CONCURRENT_AI_CALLS) {
+        activeAICalls++;
+        return;
+    }
+    // Wait in queue until a slot opens
+    return new Promise<void>((resolve) => {
+        aiCallQueue.push({ resolve });
+    });
+}
+
+function releaseAISlot(): void {
+    activeAICalls--;
+    if (aiCallQueue.length > 0 && activeAICalls < MAX_CONCURRENT_AI_CALLS) {
+        const next = aiCallQueue.shift();
+        if (next) {
+            activeAICalls++;
+            next.resolve();
+        }
+    }
+}
+
 // Progress callback type for live thinking stream
 export type ProgressCallback = (update: {
     phase: 'routing' | 'brainstorming' | 'peer_review' | 'synthesizing';
@@ -95,22 +126,67 @@ export function formatProfileContext(profile?: UserProfile): string {
 }
 
 /**
- * Retry wrapper for Vertex AI generation
+ * Circuit Breaker state — fast-fails when Vertex AI is overwhelmed
  */
-async function generateWithRetry(model: GenerativeModel, request: GenerateContentRequest, maxRetries = 3, initialDelay = 1000): Promise<GenerateContentResult> {
+let circuitBreakerFailures = 0;
+let circuitBreakerResetTime = 0;
+const CIRCUIT_BREAKER_THRESHOLD = 5; // After 5 consecutive 429s, open circuit
+const CIRCUIT_BREAKER_COOLDOWN_MS = 15000; // Wait 15s before retrying
+
+/**
+ * Retry wrapper for Vertex AI generation with global concurrency control
+ * - Acquires a concurrency slot before calling Vertex AI
+ * - Uses circuit breaker to fast-fail when API is overwhelmed
+ * - Shorter retry delays to minimize idle billing time
+ */
+async function generateWithRetry(model: GenerativeModel, request: GenerateContentRequest, maxRetries = 3, initialDelay = 500): Promise<GenerateContentResult> {
+    // Circuit breaker check — fast-fail if API is overwhelmed
+    if (circuitBreakerFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        if (Date.now() < circuitBreakerResetTime) {
+            throw new Error(`[CircuitBreaker] Vertex AI overwhelmed. Fast-failing. Retry after ${Math.ceil((circuitBreakerResetTime - Date.now()) / 1000)}s.`);
+        }
+        // Cooldown elapsed — reset and try again
+        circuitBreakerFailures = 0;
+        logger.info('[CircuitBreaker] Cooldown elapsed, resetting circuit breaker.');
+    }
+
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
+        // Acquire global concurrency slot (waits if at capacity)
+        await acquireAISlot();
         try {
-            return await model.generateContent(request);
+            const result = await model.generateContent(request);
+
+            // Check for safety filter blocks (FinishReason.SAFETY)
+            const candidate = result.response.candidates?.[0];
+            if (candidate?.finishReason === 'SAFETY') {
+                const ratings = candidate.safetyRatings?.map((r: any) => `${r.category}: ${r.probability}`).join(', ');
+                logger.warn(`[Engine] Safety block detected. Reason: SAFETY. Ratings: ${ratings}`);
+                throw new Error('SAFETY_BLOCK');
+            }
+
+            // Success — reset circuit breaker
+            circuitBreakerFailures = 0;
+            return result;
         } catch (error: any) {
             lastError = error;
+
+            // Handle safety blocks as specific errors
+            if (error.message === 'SAFETY_BLOCK') {
+                throw error; // Propagate safety blocks immediately
+            }
+
             // Check for 429 Resource exhausted
             if (error.code === 429 || error.status === 'RESOURCE_EXHAUSTED' || error.message?.includes('429')) {
-                logger.warn(`[Engine] Rate limit hit. Retrying in ${initialDelay * Math.pow(2, i)}ms...`);
+                circuitBreakerFailures++;
+                circuitBreakerResetTime = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
+                logger.warn(`[Engine] Rate limit hit (${circuitBreakerFailures}/${CIRCUIT_BREAKER_THRESHOLD}). Retrying in ${initialDelay * Math.pow(2, i)}ms...`);
                 await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, i)));
                 continue;
             }
             throw error; // Rethrow other errors
+        } finally {
+            releaseAISlot(); // Always release the slot
         }
     }
     throw lastError;
@@ -616,7 +692,15 @@ export async function runSwarm(
     let finalResponse: string;
 
     if (finalAgentNotes.length === 0) {
-        finalResponse = "I apologize, but I'm having technical difficulties right now. Please try again in a moment, or rephrase your question.";
+        // EMERGENCY FALLBACK: If all agents were blocked or failed, check for emergency keywords
+        const emergencyKeywords = ['breathing', 'choking', 'chest pain', 'unconscious', 'bleeding', 'swelling', 'lips', 'throat', 'allergic', 'emergency', 'dizzy'];
+        const isEmergency = emergencyKeywords.some(k => query.toLowerCase().includes(k));
+
+        if (isEmergency) {
+            finalResponse = "⚠️ **EMERGENCY ADVICE:** Based on your symptoms (difficulty breathing, swelling), this could be a severe allergic reaction (anaphylaxis) or another serious medical emergency. \n\n**PLEASE CALL EMERGENCY SERVICES (911 OR YOUR LOCAL EQUIVALENT) IMMEDIATELY.** \n\nDo not wait. Do not attempt to treat this yourself with home remedies until you have spoken with emergency responders.";
+        } else {
+            finalResponse = "I apologize, but I'm having technical difficulties right now. Please try again in a moment, or rephrase your question.";
+        }
     } else {
         // Synthesize the FINAL notes
         try {

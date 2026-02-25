@@ -128,7 +128,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ messages, isTyping, activeAg
                                     className="mb-3 max-w-full rounded-lg border border-text-cream/10 shadow-sm max-h-60 object-cover"
                                 />
                             )}
-                            {msg.content}
+                            {msg.content === '🎙️ Voice Note' || msg.content === 'Voice Note' ? (
+                                <div className="flex items-center gap-3 py-1">
+                                    <div className="relative flex items-center justify-center w-10 h-10 rounded-full bg-accent-clay/10 text-accent-clay">
+                                        <div className="absolute inset-0 rounded-full border border-accent-clay/30 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" />
+                                        <div className="absolute inset-0 rounded-full border border-accent-clay/20 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite_0.5s]" />
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+                                    </div>
+                                    <span className="font-medium tracking-wide text-text-cream/90">Voice Note Analysis</span>
+                                </div>
+                            ) : msg.content.startsWith('🎙️') ? (
+                                // For transcribed voice notes like "🎙️ Hello there"
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex items-center gap-3 py-1">
+                                        <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-accent-clay/10 text-accent-clay">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+                                        </div>
+                                        <span className="font-medium text-sm tracking-wide text-text-muted-zinc/80 uppercase">Voice Note</span>
+                                    </div>
+                                    <div className="text-[16px] leading-relaxed text-text-cream/90">{msg.content.substring(2).trim()}</div>
+                                </div>
+                            ) : (
+                                msg.content
+                            )}
                         </motion.div>
                     ) : (
                         <div className="flex gap-5 max-w-[95%] sm:max-w-[85%] group">

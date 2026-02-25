@@ -1,4 +1,4 @@
-import { VertexAI, GenerativeModel } from '@google-cloud/vertexai';
+import { VertexAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
 import { AI_CONFIG, ModelTier } from '../config/ai_config';
 
 // Project configuration
@@ -23,6 +23,29 @@ const vertexAIGlobal = new VertexAI({
     location: AI_CONFIG.location.global,
     apiEndpoint: 'aiplatform.googleapis.com', // FORCE THIS
 });
+
+// ============================================================================
+// SAFETY SETTINGS
+// ============================================================================
+
+const safetySettings = [
+    {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+    {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+];
 
 // ============================================================================
 // ROUTING LOGIC
@@ -75,6 +98,7 @@ export function getGenerativeModel(options: GenerativeModelOptions): GenerativeM
         model: modelId,
         systemInstruction: options.systemInstruction,
         tools: options.tools,
+        safetySettings,
     };
 
     return client.getGenerativeModel(modelConfig);
@@ -105,6 +129,7 @@ export function getGroundedModel(systemInstruction: string): GenerativeModel {
         model: AI_CONFIG.models.FLASH,
         systemInstruction: systemInstruction,
         tools: [{ googleSearchRetrieval: {} }],
+        safetySettings,
     });
 }
 
@@ -120,6 +145,7 @@ export function getFallbackModel(options: {
     return vertexAIRegional.getGenerativeModel({
         model: options.model || AI_CONFIG.models.FLASH,
         systemInstruction: options.systemInstruction,
+        safetySettings,
     });
 }
 

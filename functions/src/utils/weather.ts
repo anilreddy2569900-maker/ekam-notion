@@ -3,7 +3,24 @@
  * 
  * Fetches real-time weather, AQI, and location data for the Environmental Agent.
  * Replaces WeatherAPI.com with Open-Meteo and BigDataCloud (No API keys required).
+ * 
+ * SCALABILITY: Implements geohash-based Firestore caching (15-min TTL)
+ * to prevent external API rate-limiting under heavy concurrent load.
  */
+
+import { db } from '../firebase';
+
+const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Generate a rough geohash from lat/lng (rounded to ~5km precision)
+ * This groups nearby users together so they share the same cached weather
+ */
+function toGeoKey(lat: number, lng: number): string {
+    const roundedLat = Math.round(lat * 20) / 20; // ~5km precision
+    const roundedLng = Math.round(lng * 20) / 20;
+    return `${roundedLat}_${roundedLng}`;
+}
 
 export interface WeatherData {
     location: {
@@ -56,6 +73,7 @@ function getWmoConditionText(code: number): string {
 
 /**
  * Fetch current weather, air quality, and reverse-geocoded location
+ * SCALABILITY: Checks Firestore cache first (geohash-keyed, 15-min TTL)
  * @param query String in format "lat,lng"
  */
 export async function getCurrentWeather(query: string): Promise<WeatherData | null> {
@@ -67,6 +85,22 @@ export async function getCurrentWeather(query: string): Promise<WeatherData | nu
         if (isNaN(lat) || isNaN(lng)) {
             console.error('[Weather] Invalid latitude/longitude query:', query);
             return null;
+        }
+
+        // CACHE CHECK: Try Firestore geohash cache first
+        const geoKey = toGeoKey(lat, lng);
+        try {
+            const cacheDoc = await db.collection('weatherCache').doc(geoKey).get();
+            if (cacheDoc.exists) {
+                const cached = cacheDoc.data();
+                const cachedAt = cached?.cachedAt?.toMillis?.() || cached?.cachedAt || 0;
+                if (Date.now() - cachedAt < WEATHER_CACHE_TTL_MS) {
+                    console.log(`[Weather] Cache HIT for geoKey ${geoKey}`);
+                    return cached?.data as WeatherData;
+                }
+            }
+        } catch (cacheErr) {
+            console.warn('[Weather] Cache read failed, fetching fresh:', cacheErr);
         }
 
         // 1. Fetch Weather (Open-Meteo)
@@ -131,6 +165,12 @@ export async function getCurrentWeather(query: string): Promise<WeatherData | nu
                 }
             }
         };
+
+        // CACHE WRITE: Save to Firestore (fire-and-forget, don't block response)
+        db.collection('weatherCache').doc(geoKey).set({
+            data,
+            cachedAt: Date.now(),
+        }).catch(err => console.warn('[Weather] Cache write failed:', err));
 
         return data;
 
